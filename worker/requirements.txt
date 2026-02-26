@@ -6,7 +6,7 @@ mineru[pipeline]>=2.6.4
 
 # Image Augmentation (Version Pinned for Compatibility)
 albumentations>=1.4.4,<2.0.0
-albucore>=0.0.13,<0.0.20
+albucore>=0.0.13,<0.0.42
 
 # Web Framework
 fastapi>=0.115.0
