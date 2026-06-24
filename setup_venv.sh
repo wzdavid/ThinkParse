@@ -1,5 +1,5 @@
 #!/bin/bash
-# MinerU-API Virtual Environment Setup Script
+# ThinkParse Virtual Environment Setup Script
 # 用于快速设置开发环境的虚拟环境
 
 set -e  # Exit on error
@@ -10,7 +10,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}🚀 MinerU-API Virtual Environment Setup${NC}"
+echo -e "${GREEN}🚀 ThinkParse Virtual Environment Setup${NC}"
 echo ""
 
 # Check Python version

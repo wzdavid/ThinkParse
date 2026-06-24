@@ -1,4 +1,4 @@
-# MinerU API Service Requirements (Lightweight)
+# ThinkParse API Service Requirements (Lightweight)
 # 专门用于 API 服务的轻量级依赖包
 
 # Web Framework

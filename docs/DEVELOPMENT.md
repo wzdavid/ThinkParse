@@ -1,6 +1,6 @@
 # Development Environment Setup Guide
 
-This document describes how to set up the MinerU-API project in a local development environment.
+This document describes how to set up the ThinkParse project in a local development environment.
 
 ## Prerequisites
 
@@ -131,7 +131,7 @@ python tasks.py
 ## Project Structure
 
 ```
-mineru-api/
+ThinkParse/
 ├── api/                    # API service
 │   ├── app.py             # FastAPI application
 │   └── requirements.txt   # API dependencies

@@ -91,6 +91,7 @@ cd docker && docker compose up -d
 - `redis` 服务需要 `redis` profile
 - `mineru-worker-cpu` 需要 `mineru-cpu` profile
 - `mineru-worker-gpu` 需要 `mineru-gpu` profile
+- **请始终在 `docker/` 目录下运行 `docker compose`**（先执行 `cd docker`），以确保 `docker/.env`（含 `COMPOSE_PROFILES`）被正确加载
 
 **手动指定 Profile**（命令行方式，不推荐）：
 

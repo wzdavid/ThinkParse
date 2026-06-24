@@ -526,7 +526,7 @@ docker compose exec mineru-api python -c "from shared.storage import get_storage
 
 1. 查看完整日志: `docker compose logs > logs.txt`
 2. 检查系统资源: `docker stats`
-3. 查看 GitHub Issues: [Issues](https://github.com/wzdavid/mineru-api/issues)
+3. 查看 GitHub Issues: [Issues](https://github.com/wzdavid/ThinkParse/issues)
 4. 提交新 Issue，包含：
    - 错误信息
    - 日志输出

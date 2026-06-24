@@ -1,6 +1,6 @@
-# MinerU-API Documentation
+# ThinkParse Documentation
 
-Welcome to the MinerU-API documentation. This documentation contains all detailed usage instructions and configuration options.
+Welcome to the ThinkParse documentation. This documentation contains all detailed usage instructions and configuration options.
 
 ## Language
 
@@ -53,6 +53,6 @@ Welcome to the MinerU-API documentation. This documentation contains all detaile
 
 ## More Resources
 
-- [GitHub Repository](https://github.com/wzdavid/mineru-api)
-- [Issue Tracker](https://github.com/wzdavid/mineru-api/issues)
+- [GitHub Repository](https://github.com/wzdavid/ThinkParse)
+- [Issue Tracker](https://github.com/wzdavid/ThinkParse/issues)
 - [Contributing Guide](../CONTRIBUTING.md)

@@ -91,6 +91,7 @@ cd docker && docker compose up -d
 - `redis` service requires `redis` profile
 - `mineru-worker-cpu` requires `mineru-cpu` profile
 - `mineru-worker-gpu` requires `mineru-gpu` profile
+- **Always run `docker compose` from the `docker/` directory** (`cd docker` first) so that `docker/.env` (including `COMPOSE_PROFILES`) is loaded correctly
 
 **Manual Profile Selection** (command line, not recommended):
 

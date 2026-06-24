@@ -1,8 +1,8 @@
 # API Usage Examples
 
-This document provides various usage examples for MinerU-API.
+This document provides various usage examples for ThinkParse.
 
-MinerU-API provides two API interfaces:
+ThinkParse provides two API interfaces:
 
 1. **Official MinerU API** (`/file_parse`) - Synchronous, compatible with official MinerU API format
 2. **Async Queue API** (`/api/v1/tasks/*`) - Asynchronous, compatible with mineru-tianshu project format

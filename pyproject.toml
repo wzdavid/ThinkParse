@@ -1,14 +1,14 @@
 [project]
-name = "mineru-api"
-version = "1.0.0"
-description = "Enterprise-grade document parsing service with asynchronous queue processing based on Celery"
+name = "think-parse"
+version = "1.1.0"
+description = "ThinkParse — enterprise-grade document parsing service with asynchronous queue processing based on Celery"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "MinerU-API Contributors"}
+    {name = "ThinkParse Contributors"}
 ]
-keywords = ["document-parsing", "mineru", "celery", "fastapi", "async"]
+keywords = ["document-parsing", "thinkparse", "mineru", "celery", "fastapi", "async"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -22,10 +22,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/wzdavid/mineru-api"
-Documentation = "https://github.com/wzdavid/mineru-api#readme"
-Repository = "https://github.com/wzdavid/mineru-api"
-Issues = "https://github.com/wzdavid/mineru-api/issues"
+Homepage = "https://github.com/wzdavid/ThinkParse"
+Documentation = "https://github.com/wzdavid/ThinkParse#readme"
+Repository = "https://github.com/wzdavid/ThinkParse"
+Issues = "https://github.com/wzdavid/ThinkParse/issues"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

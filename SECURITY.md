@@ -11,7 +11,7 @@ We actively support security updates for the following versions:
 
 ## Reporting a Vulnerability
 
-We take the security of MinerU-API seriously. If you believe you have found a security vulnerability, please report it to us as described below.
+We take the security of ThinkParse seriously. If you believe you have found a security vulnerability, please report it to us as described below.
 
 ### How to Report
 
@@ -20,7 +20,7 @@ We take the security of MinerU-API seriously. If you believe you have found a se
 Instead, please report them via one of the following methods:
 
 1. **Email**: Send an email to [wzdavid@gmail.com](mailto:wzdavid@gmail.com) with details about the vulnerability
-2. **GitHub Security Advisory**: Use GitHub's [Private Vulnerability Reporting](https://github.com/wzdavid/mineru-api/security/advisories/new) feature
+2. **GitHub Security Advisory**: Use GitHub's [Private Vulnerability Reporting](https://github.com/wzdavid/ThinkParse/security/advisories/new) feature
 
 ### What to Include
 
@@ -158,6 +158,6 @@ Before deploying to production, ensure:
 
 For security-related questions or concerns, please contact:
 - **Security Email**: [wzdavid@gmail.com](mailto:wzdavid@gmail.com)
-- **GitHub Security**: [Use Private Vulnerability Reporting](https://github.com/wzdavid/mineru-api/security/advisories/new)
+- **GitHub Security**: [Use Private Vulnerability Reporting](https://github.com/wzdavid/ThinkParse/security/advisories/new)
 
-Thank you for helping keep MinerU-API and its users safe!
+Thank you for helping keep ThinkParse and its users safe!

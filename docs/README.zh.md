@@ -1,6 +1,6 @@
-# MinerU-API 完整文档
+# ThinkParse 完整文档
 
-欢迎使用 MinerU-API 完整文档。本文档包含所有详细的使用说明和配置选项。
+欢迎使用 ThinkParse 完整文档。本文档包含所有详细的使用说明和配置选项。
 
 ## 语言
 
@@ -53,6 +53,6 @@
 
 ## 更多资源
 
-- [GitHub Repository](https://github.com/wzdavid/mineru-api)
-- [Issue Tracker](https://github.com/wzdavid/mineru-api/issues)
+- [GitHub Repository](https://github.com/wzdavid/ThinkParse)
+- [Issue Tracker](https://github.com/wzdavid/ThinkParse/issues)
 - [Contributing Guide](../CONTRIBUTING.md)

@@ -1,14 +1,14 @@
+# ThinkParse
+
 <div align="center">
 
-# MinerU Parsing Service
-
-[![CI](https://github.com/wzdavid/mineru-api/workflows/CI/badge.svg)](https://github.com/wzdavid/mineru-api/actions)
+[![CI](https://github.com/wzdavid/ThinkParse/workflows/CI/badge.svg)](https://github.com/wzdavid/ThinkParse/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
 [![Celery](https://img.shields.io/badge/Celery-5.3+-green.svg)](https://docs.celeryq.dev)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/wzdavid/mineru-api)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/wzdavid/ThinkParse)
 
 [English](README.md) | [简体中文](README.zh.md)
 
@@ -17,6 +17,10 @@
 </div>
 
 Enterprise-grade document parsing service with asynchronous queue processing based on Celery, featuring a fully decoupled API/Worker architecture.
+
+Part of the **Think** product family — alongside [ThinkWiki](https://github.com/wzdavid/ThinkWiki) (personal knowledge base), ThinkDoc (enterprise knowledge base), and ThinkExtract (data extraction). ThinkParse is the open-source parsing layer: pluggable backends (MinerU today; Docling and others planned) behind a stable HTTP API.
+
+Repository: **https://github.com/wzdavid/ThinkParse**
 
 ## Features
 
@@ -103,7 +107,7 @@ That's it! The API is now running at `http://localhost:8000`.
 
 ## API Usage
 
-MinerU-API provides two API interfaces to suit different use cases:
+ThinkParse provides two API interfaces to suit different use cases:
 
 ### 1. Official MinerU API (Synchronous)
 
@@ -218,7 +222,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 This project is built on top of the following excellent open-source projects:
 
-- **[MinerU](https://github.com/opendatalab/MinerU)** - The core document parsing engine that powers this service
+- **[MinerU](https://github.com/opendatalab/MinerU)** - The core document parsing engine that powers this service (v3.4.x)
 - **[mineru-tianshu](https://github.com/magicyuan876/mineru-tianshu)** - Inspiration and reference for the API architecture
 
 We are grateful to the developers and contributors of these projects for their valuable work.
@@ -231,7 +235,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 This project uses the following open-source libraries:
 
-- **MinerU** - Licensed under [AGPL-3.0](https://github.com/opendatalab/MinerU/blob/master/LICENSE.md)
+- **MinerU** - Licensed under the [MinerU Open Source License](https://github.com/opendatalab/MinerU/blob/master/LICENSE) (Apache 2.0-based; upgraded from AGPL-3.0 in MinerU 3.1+)
 - **MarkItDown** - Licensed under [MIT](https://github.com/microsoft/markitdown)
 
 MinerU is used as an external library and its source code is not included in this repository.

@@ -1,6 +1,6 @@
-# Contributing to MinerU-API
+# Contributing to ThinkParse
 
-Thank you for your interest in contributing to MinerU-API! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to ThinkParse! This document provides guidelines and instructions for contributing.
 
 ## Table of Contents
 
@@ -20,7 +20,7 @@ This project adheres to a Code of Conduct that all contributors are expected to 
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/wzdavid/mineru-api.git`
+2. Clone your fork: `git clone https://github.com/wzdavid/ThinkParse.git`
 3. Create a branch: `git checkout -b feature/your-feature-name`
 4. Make your changes
 5. Test your changes
@@ -38,8 +38,8 @@ This project adheres to a Code of Conduct that all contributors are expected to 
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/wzdavid/mineru-api.git
-   cd mineru-api
+   git clone https://github.com/wzdavid/ThinkParse.git
+   cd ThinkParse
    ```
 
 2. **Create a virtual environment**
@@ -214,4 +214,4 @@ If you have questions, please:
 - Start a discussion for general questions
 - Contact maintainers for security issues (see SECURITY.md)
 
-Thank you for contributing to MinerU-API! 🎉
+Thank you for contributing to ThinkParse! 🎉

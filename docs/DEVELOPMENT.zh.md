@@ -1,6 +1,6 @@
 # 开发环境设置指南
 
-本文档介绍如何在本地开发环境中设置 MinerU-API 项目。
+本文档介绍如何在本地开发环境中设置 ThinkParse 项目。
 
 ## 前置要求
 
@@ -131,7 +131,7 @@ python tasks.py
 ## 项目结构
 
 ```
-mineru-api/
+ThinkParse/
 ├── api/                    # API 服务
 │   ├── app.py             # FastAPI 应用
 │   └── requirements.txt   # API 依赖

@@ -29,7 +29,7 @@ from shared.storage import get_storage
 
 if os.getenv('MINERU_DEVICE_MODE') == None or os.getenv('MINERU_DEVICE_MODE') == '' or os.getenv('MINERU_DEVICE_MODE') == 'auto':
     # Delete empty or 'auto' value to let MinerU automatically detect device type
-    del os.environ['MINERU_DEVICE_MODE']
+    os.environ.pop('MINERU_DEVICE_MODE', None)
 
 import threading
 # PyPDFium2 only supports single-threaded usage

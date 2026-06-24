@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-MinerU API Server - Fully Decoupled Architecture
+ThinkParse API Server - Fully Decoupled Architecture
 Handles task submission and status queries only.
 """
 from dotenv import load_dotenv
@@ -36,9 +36,9 @@ from shared.storage import get_storage
 
 # Create FastAPI application
 app = FastAPI(
-    title="MinerU API Server (Decoupled)",
-    description="MinerU Document Parsing Service - Handles task submission and querying only",
-    version="1.0.0"
+    title="ThinkParse API Server",
+    description="Document parsing service — handles task submission and querying only",
+    version="1.1.0"
 )
 
 # Enable CORS
@@ -111,9 +111,9 @@ def get_infer_result(file_suffix_identifier: str, pdf_name: str, parse_dir: str)
 async def root():
     """Root endpoint with service metadata."""
     return {
-        "service": "MinerU API Server (Decoupled)",
-        "version": "1.0.0",
-        "description": "MinerU Document Parsing Service",
+        "service": "ThinkParse API Server",
+        "version": "1.1.0",
+        "description": "Document parsing service",
         "endpoints": {
             "submit": "/api/v1/tasks/submit",
             "status": "/api/v1/tasks/{task_id}",
@@ -765,8 +765,8 @@ async def health_check():
         return {
             'success': True,
             'status': 'healthy',
-            'service': 'MinerU API Server',
-            'version': '1.0.0',
+            'service': 'ThinkParse API Server',
+            'version': '1.1.0',
             'workers': {
                 'active': active_workers,
                 'available': active_workers > 0
@@ -785,6 +785,6 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info(f"🚀 Starting MinerU API Server on {celeryconfig.API_HOST}:{celeryconfig.API_PORT}")
+    logger.info(f"🚀 Starting ThinkParse API Server on {celeryconfig.API_HOST}:{celeryconfig.API_PORT}")
     logger.info(f"📚 API Documentation: http://{celeryconfig.API_HOST}:{celeryconfig.API_PORT}/docs")
     uvicorn.run(app, host=celeryconfig.API_HOST, port=celeryconfig.API_PORT, log_level="info")

@@ -1,14 +1,14 @@
+# ThinkParse
+
 <div align="center">
 
-# MinerU Parsing Service
-
-[![CI](https://github.com/wzdavid/mineru-api/workflows/CI/badge.svg)](https://github.com/wzdavid/mineru-api/actions)
+[![CI](https://github.com/wzdavid/ThinkParse/workflows/CI/badge.svg)](https://github.com/wzdavid/ThinkParse/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
 [![Celery](https://img.shields.io/badge/Celery-5.3+-green.svg)](https://docs.celeryq.dev)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/wzdavid/mineru-api)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/wzdavid/ThinkParse)
 
 [English](README.md) | [简体中文](README.zh.md)
 
@@ -17,6 +17,10 @@
 </div>
 
 企业级文档解析服务，基于 Celery 实现异步队列处理，采用完全解耦的 API/Worker 架构。
+
+**Think** 系列产品之一 —— 与 [ThinkWiki](https://github.com/wzdavid/ThinkWiki)（个人知识库）、ThinkDoc（企业知识库）、ThinkExtract（数据抽取平台）并列。ThinkParse 是开源解析层：可插拔后端（当前为 MinerU，后续计划支持 Docling 等），对外提供稳定的 HTTP API。
+
+仓库地址：**https://github.com/wzdavid/ThinkParse**
 
 ## 功能特性
 
@@ -103,7 +107,7 @@
 
 ## API 使用
 
-MinerU-API 提供了两种 API 接口，以适应不同的使用场景：
+ThinkParse 提供了两种 API 接口，以适应不同的使用场景：
 
 ### 1. MinerU 官方 API（同步）
 
@@ -218,7 +222,7 @@ pip install -r cleanup/requirements.txt
 
 本项目基于以下优秀的开源项目构建：
 
-- **[MinerU](https://github.com/opendatalab/MinerU)** - 提供核心文档解析引擎
+- **[MinerU](https://github.com/opendatalab/MinerU)** - 提供核心文档解析引擎（v3.4.x）
 - **[mineru-tianshu](https://github.com/magicyuan876/mineru-tianshu)** - API 架构的参考和灵感来源
 
 我们感谢这些项目的开发者和贡献者的宝贵工作。
@@ -231,7 +235,7 @@ MIT License - 查看 [LICENSE](LICENSE) 文件了解详情。
 
 本项目使用以下开源库：
 
-- **MinerU** - 使用 [AGPL-3.0](https://github.com/opendatalab/MinerU/blob/master/LICENSE.md) 许可证
+- **MinerU** - 使用基于 [Apache 2.0](https://github.com/opendatalab/MinerU/blob/master/LICENSE) 的 [MinerU 开源许可证](https://github.com/opendatalab/MinerU/blob/master/LICENSE)（自 MinerU 3.1 起由 AGPL-3.0 升级）
 - **MarkItDown** - 使用 [MIT](https://github.com/microsoft/markitdown) 许可证
 
 MinerU 作为外部库使用，其源代码未包含在本仓库中。

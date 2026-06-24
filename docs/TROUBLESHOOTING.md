@@ -524,7 +524,7 @@ If the above solutions cannot resolve the issue:
 
 1. View complete logs: `cd docker && docker compose logs > logs.txt`
 2. Check system resources: `docker stats`
-3. View GitHub Issues: [Issues](https://github.com/wzdavid/mineru-api/issues)
+3. View GitHub Issues: [Issues](https://github.com/wzdavid/ThinkParse/issues)
 4. Submit a new Issue, including:
    - Error information
    - Log output

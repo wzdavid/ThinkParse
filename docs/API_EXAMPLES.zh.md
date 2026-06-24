@@ -1,8 +1,8 @@
 # API 使用示例
 
-本文档提供了 MinerU-API 的各种使用示例。
+本文档提供了 ThinkParse 的各种使用示例。
 
-MinerU-API 提供了两种 API 接口：
+ThinkParse 提供了两种 API 接口：
 
 1. **MinerU 官方 API** (`/file_parse`) - 同步方式，兼容 MinerU 官方 API 格式
 2. **异步队列 API** (`/api/v1/tasks/*`) - 异步方式，兼容 mineru-tianshu 项目格式

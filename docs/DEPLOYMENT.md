@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This document provides detailed instructions on how to deploy MinerU-API in production environments.
+This document provides detailed instructions on how to deploy ThinkParse in production environments.
 
 ## Table of Contents
 
