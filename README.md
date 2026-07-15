@@ -113,6 +113,8 @@ ThinkParse provides two API interfaces to suit different use cases:
 
 The `/file_parse` endpoint is compatible with the official MinerU API format. It submits tasks to the worker and waits for completion, returning results directly in the response.
 
+> Note: `/file_parse` is a compatibility interface intended for single-host or simple integration scenarios. In S3 storage, multi-worker, or multi-node production deployments, use `/api/v1/tasks/submit` + status polling instead.
+
 **Reference**: [MinerU Official API](https://github.com/opendatalab/MinerU/blob/master/mineru/cli/fast_api.py)
 
 ```bash
@@ -124,7 +126,7 @@ curl -X POST "http://localhost:8000/file_parse" \
   -F "return_md=true"
 ```
 
-**Use cases**: Simple integration, immediate results needed, compatible with existing MinerU clients.
+**Use cases**: Simple integration, immediate results needed, compatible with existing MinerU clients on single-host deployments.
 
 ### 2. Async Queue API (Asynchronous)
 
@@ -145,7 +147,7 @@ curl -X POST "http://localhost:8000/api/v1/tasks/submit" \
 curl "http://localhost:8000/api/v1/tasks/{task_id}"
 ```
 
-**Use cases**: Production deployments, batch processing, long-running tasks, better scalability.
+**Use cases**: Production deployments, batch processing, long-running tasks, S3 storage, multi-worker, and better scalability.
 
 ### View API Documentation
 

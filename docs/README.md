@@ -10,6 +10,7 @@ Welcome to the ThinkParse documentation. This documentation contains all detaile
 ## Table of Contents
 
 - [Deployment Guide](DEPLOYMENT.md) - Production deployment instructions
+- [Large-scale multi-node](PRODUCTION_MULTI_NODE.md) - Multi-server + multi-GPU workers
 - [Configuration Reference](CONFIGURATION.md) - All environment variables and configuration options
 - [API Examples](API_EXAMPLES.md) - Code examples in multiple languages
 - [Troubleshooting](TROUBLESHOOTING.md) - Common issues and solutions
@@ -26,8 +27,9 @@ Welcome to the ThinkParse documentation. This documentation contains all detaile
 
 ### Production Deployment
 1. Read the [Deployment Guide](DEPLOYMENT.md)
-2. Configure [S3 Storage](S3_STORAGE.md) (recommended)
-3. Set up the [Cleanup Service](CLEANUP_CONTAINER.md)
+2. Multi-node workers: [Large-scale production](PRODUCTION_MULTI_NODE.md)
+3. Configure [S3 Storage](S3_STORAGE.md) (recommended)
+4. Set up the [Cleanup Service](CLEANUP_CONTAINER.md)
 
 ### Troubleshooting
 1. Check [Troubleshooting](TROUBLESHOOTING.md)

@@ -1,0 +1,22 @@
+# Worker-only overlay for multi-node GPU hosts.
+#
+# Default docker-compose.yml starts mineru-api and mineru-cleanup with no
+# profile (always on). On a dedicated GPU machine that is wrong: you would get
+# extra API instances and duplicate cleanup jobs.
+#
+# Use with the multi-GPU template, e.g. in docker/.env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml:docker-compose.worker-only.yml
+#   COMPOSE_PROFILES=mineru-gpu-0,mineru-gpu-1
+#   # REDIS_URL / S3 must point at shared services (not hostname "redis" unless
+#   # that container is on this host's compose network)
+#
+# Or one-shot:
+#   docker compose -f docker-compose.yml -f docker-compose.multi-gpu.yml \
+#     -f docker-compose.worker-only.yml --profile mineru-gpu-0 --profile mineru-gpu-1 up -d
+
+services:
+  mineru-api:
+    profiles: ["__disabled__"]
+
+  mineru-cleanup:
+    profiles: ["__disabled__"]

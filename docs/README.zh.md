@@ -10,6 +10,7 @@
 ## 目录
 
 - [部署指南](DEPLOYMENT.zh.md) - 生产环境部署详细说明
+- [大规模多机部署](PRODUCTION_MULTI_NODE.zh.md) - 多服务器 + 多 GPU Worker
 - [配置参考](CONFIGURATION.zh.md) - 所有环境变量和配置选项
 - [API 示例](API_EXAMPLES.zh.md) - 多语言代码示例
 - [故障排除](TROUBLESHOOTING.zh.md) - 常见问题和解决方案
@@ -26,8 +27,9 @@
 
 ### 生产部署
 1. 阅读 [部署指南](DEPLOYMENT.zh.md)
-2. 配置 [S3 存储](S3_STORAGE.zh.md)（推荐）
-3. 设置 [清理服务](CLEANUP_CONTAINER.zh.md)
+2. 多机多 Worker：[大规模生产部署](PRODUCTION_MULTI_NODE.zh.md)
+3. 配置 [S3 存储](S3_STORAGE.zh.md)（推荐）
+4. 设置 [清理服务](CLEANUP_CONTAINER.zh.md)
 
 ### 遇到问题
 1. 查看 [故障排除](TROUBLESHOOTING.zh.md)

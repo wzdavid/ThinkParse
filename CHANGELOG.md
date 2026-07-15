@@ -10,6 +10,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be documented here
 
+## [1.2.0] - 2026-07-15
+
+Production hardening: keep Redis as a slim Celery queue (no parse bodies), isolate Redis disk from temp/output, shorten temp cleanup defaults, and document single-host multi-GPU plus multi-node scale-out.
+
+### Added
+- `shared/task_result.py`: slim Celery/Redis results; hydrate markdown / `images[]` / JSON from storage for the status API (response shape unchanged for ThinkDoc / ThinkExtract)
+- `docker/docker-compose.multi-gpu.yml`: one worker per GPU (`mineru-gpu-0` … `mineru-gpu-7`)
+- `docker/docker-compose.worker-only.yml`: disable local API/cleanup on dedicated GPU hosts
+- Docs: multi-node production guide (`docs/PRODUCTION_MULTI_NODE.md` / `.zh.md`); Redis `REDIS_DATA_PATH` guidance in deployment docs
+- `TEMP_MAX_AGE_HOURS` (default 6) wired through cleanup scheduler / Compose
+
+### Changed
+- Celery task results no longer store full markdown, base64 `images[]`, or inline `content_list` / `middle_json` in Redis (AOF/memory grow only with queue metadata)
+- Default cleanup interval `CLEANUP_INTERVAL_HOURS`: 24 → **6**; temp orphan age: 24 → **6** (above `TASK_TIME_LIMIT=2h`)
+- Docker Redis volume can bind via `REDIS_DATA_PATH` (keep off the temp/output disk)
+
+### Fixed
+- S3 `download_to_local`: preserve remote file suffix so `get_file_type()` still selects MinerU for PDFs/images
+
+### Upgrade notes
+- Rebuild/restart **API + Worker + cleanup** images/containers so slim-result + hydrate code is live
+- Production: set `REDIS_DATA_PATH` on a disk separate from `mineru_temp` / `mineru_output`
+- Multi-GPU single host: `COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml` and profiles `mineru-gpu-0,...` (do not also enable `mineru-gpu`)
+- Multi-node GPU hosts: also load `docker-compose.worker-only.yml`; point `REDIS_URL` / S3 at shared services
+- Configure S3 temp bucket lifecycle when using `MINERU_STORAGE_TYPE=s3`
+- Public HTTP API fields are unchanged; clients need no code change
+
 ## [1.1.0] - 2026-06-24
 
 Upgrade the parsing engine to **MinerU 3.4.0** and rebrand the project as **ThinkParse**.
@@ -87,6 +114,7 @@ Upgrade the parsing engine to **MinerU 3.4.0** and rebrand the project as **Thin
 
 ## Version History
 
+- **1.2.0**: Slim Redis results (hydrate from storage); Redis/temp disk isolation; faster temp cleanup; multi-GPU and multi-node deploy templates
 - **1.1.0**: Rebrand to ThinkParse; MinerU 3.4.0 upgrade with subprocess environment variable fix
 - **1.0.0**: Initial release with decoupled architecture and comprehensive features
 

@@ -26,6 +26,11 @@ from celery import Celery, states
 from celery.utils.log import get_task_logger
 from shared import celeryconfig
 from shared.storage import get_storage
+from shared.task_result import (
+    apply_status_payload,
+    hydrate_celery_result,
+    slim_celery_result,
+)
 
 if os.getenv('MINERU_DEVICE_MODE') == None or os.getenv('MINERU_DEVICE_MODE') == '' or os.getenv('MINERU_DEVICE_MODE') == 'auto':
     # Delete empty or 'auto' value to let MinerU automatically detect device type
@@ -713,6 +718,8 @@ def _merge_chunk_results_from_results(
     content_list_meta = None
 
     for idx, chunk_result in enumerate(chunk_results):
+        # Chunk Celery results are slim (keys only); load bodies from storage.
+        chunk_result = hydrate_celery_result(chunk_result)
         chunk_data = chunk_result.get('data', {})
         chunk_md = chunk_data.get('content') or ''
         chunk_start_page = chunk_result.get('start_page', 1)
@@ -811,14 +818,24 @@ def _merge_chunk_results_from_results(
         md_output.write_text(merged_md, encoding='utf-8')
 
         output_key_prefix = f"{task_id}/"
-        for file_path_obj in output_path.rglob('*'):
-            if file_path_obj.is_file():
-                relative_path = file_path_obj.relative_to(output_path)
-                storage_key = f"{output_key_prefix}{relative_path}"
-                storage.save_output_file(storage_key, file_path_obj.read_bytes())
 
         if merged_images:
             merged_images.sort(key=lambda img: img.get('filename', '') if isinstance(img, dict) else '')
+            images_dir = output_path / "images"
+            images_dir.mkdir(parents=True, exist_ok=True)
+            for img in merged_images:
+                if not isinstance(img, dict):
+                    continue
+                filename = img.get('filename')
+                data_url = img.get('data_url')
+                if not filename or not data_url or ',' not in str(data_url):
+                    continue
+                try:
+                    import base64
+                    encoded = str(data_url).split(',', 1)[1]
+                    (images_dir / Path(filename).name).write_bytes(base64.b64decode(encoded))
+                except Exception as e:
+                    logger.warning(f"Failed to persist merged image {filename}: {e}")
 
         if merged_content_list:
             if content_list_format == 'pages':
@@ -832,18 +849,19 @@ def _merge_chunk_results_from_results(
 
         images_uploaded = chunk_results[0].get('data', {}).get('images_uploaded', False) if chunk_results else False
 
+        markdown_key = f"{output_key_prefix}result.md"
         result = {
             'status': 'completed',
             'file_name': file_name,
             'backend': backend,
             'parse_method': parse_method,
             'completed_at': datetime.now().isoformat(),
+            'result_path': output_key_prefix,
+            'markdown_key': markdown_key,
             'data': {
-                'content': merged_md,
                 'images_uploaded': images_uploaded,
                 'images_as_base64': has_base64_images,
                 'has_images': total_images > 0,
-                'images': merged_images
             }
         }
 
@@ -854,18 +872,24 @@ def _merge_chunk_results_from_results(
             content_list_json.write_text(json.dumps(final_content_list, indent=2, ensure_ascii=False), encoding='utf-8')
 
             content_list_storage_key = f"{output_key_prefix}{base_name}/auto/{base_name}_content_list.json"
-            storage.save_output_file(content_list_storage_key, content_list_json.read_bytes())
-
             result['json_files'] = {
                 'content_list_json': content_list_storage_key
             }
-            result['content_list'] = final_content_list
 
-    final_content_length = len(result.get('data', {}).get('content', ''))
-    final_content_list_count = len(result.get('content_list', [])) if result.get('content_list') is not None else 0
-    logger.info(f"✅ Merge completed: content_length={final_content_length}, content_list_items={final_content_list_count}, has_json_files={'json_files' in result}")
+        # Upload all local outputs (md / images / json) once at the end.
+        for file_path_obj in output_path.rglob('*'):
+            if file_path_obj.is_file():
+                relative_path = file_path_obj.relative_to(output_path)
+                storage_key = f"{output_key_prefix}{relative_path}"
+                storage.save_output_file(storage_key, file_path_obj.read_bytes())
 
-    return result
+    logger.info(
+        f"✅ Merge completed: content_length={len(merged_md)}, "
+        f"content_list_items={len(merged_content_list)}, "
+        f"has_json_files={'json_files' in result}"
+    )
+
+    return slim_celery_result(result)
 
 
 
@@ -955,6 +979,8 @@ def _execute_parse_document(
                 
                 # Upload all output files to storage
                 output_key_prefix = f"{task_id}/"
+                markdown_relative = md_file.relative_to(output_path)
+                markdown_key = f"{output_key_prefix}{markdown_relative}"
                 for file_path_obj in output_path.rglob('*'):
                     if file_path_obj.is_file():
                         relative_path = file_path_obj.relative_to(output_path)
@@ -962,35 +988,9 @@ def _execute_parse_document(
                         storage.save_output_file(storage_key, file_path_obj.read_bytes())
                         logger.debug(f"Uploaded output file: {storage_key}")
                 
-                # Build images_base64 list for JSON response
-                images_list = []
-                try:
-                    if image_dir.exists():
-                        return_images = os.getenv('MINERU_RETURN_IMAGES_BASE64', 'true').lower() == 'true'
-                        if return_images:
-                            import base64
-                            import mimetypes
-                            for img_path in sorted(image_dir.iterdir()):
-                                if not img_path.is_file():
-                                    continue
-                                try:
-                                    with open(img_path, 'rb') as img_file:
-                                        img_data = img_file.read()
-                                    mime_type, _ = mimetypes.guess_type(str(img_path))
-                                    if not mime_type or not mime_type.startswith('image/'):
-                                        ext = img_path.suffix.lower()
-                                        mime_type = MIME_TYPE_MAP.get(ext, 'image/png')
-                                    data_url = f"data:{mime_type};base64,{base64.b64encode(img_data).decode('utf-8')}"
-                                    images_list.append({
-                                        'filename': img_path.name,
-                                        'mime_type': mime_type,
-                                        'size_bytes': len(img_data),
-                                        'data_url': data_url,
-                                    })
-                                except Exception as e:
-                                    logger.warning(f"Failed to build base64 for image {img_path}: {e}")
-                except Exception as e:
-                    logger.warning(f"Failed to enumerate images for task {task_id}: {e}")
+                # Image binaries stay on disk/storage; status API rebuilds images[] from files.
+                # Avoid building large base64 lists into the Celery/Redis result.
+                has_image_files = bool(image_dir.exists() and any(image_dir.iterdir()))
                 
                 # Collect JSON file paths (if they exist)
                 json_files: dict[str, str] = {}
@@ -1003,14 +1003,13 @@ def _execute_parse_document(
                     content_list_json = auto_dir / f"{base_name}_content_list.json"
                     if content_list_json.exists():
                         json_storage_key = f"{output_key_prefix}{base_name}/auto/{content_list_json.name}"
-                        storage.save_output_file(json_storage_key, content_list_json.read_bytes())
+                        # Already uploaded via rglob; keep key for status hydrate
                         json_files["content_list_json"] = json_storage_key
 
                     # 2) middle.json (layout analysis with discarded_blocks: header/footer/page_number)
                     middle_json = auto_dir / f"{base_name}_middle.json"
                     if middle_json.exists():
                         middle_storage_key = f"{output_key_prefix}{base_name}/auto/{middle_json.name}"
-                        storage.save_output_file(middle_storage_key, middle_json.read_bytes())
                         json_files["middle_json_json"] = middle_storage_key
                 
                 # Check if markdown content contains Base64 images
@@ -1030,52 +1029,35 @@ def _execute_parse_document(
             except Exception as e:
                 logger.warning(f"Failed to cleanup storage temp file {file_path}: {e}")
         
-        # Load content_list from JSON file if it exists (for chunk tasks to merge)
-        content_list_data = None
-        if json_files and 'content_list_json' in json_files:
-            try:
-                content_list_path = json_files['content_list_json']
-                # If it's a storage path, download it first
-                if not Path(content_list_path).exists():
-                    # Try to load from storage
-                    storage = get_storage()
-                    if hasattr(storage, 'download_to_local'):
-                        local_path = storage.download_to_local(content_list_path)
-                        content_list_path = local_path
-                
-                if Path(content_list_path).exists():
-                    with open(content_list_path, 'r', encoding='utf-8') as f:
-                        content_list_data = json.load(f)
-                        logger.debug(f"✅ Loaded content_list from {content_list_path}: {len(content_list_data) if isinstance(content_list_data, list) else 'dict'} items")
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to load content_list from JSON file: {e}")
-        
-        # Return result
+        # Return slim metadata only; status/merge hydrate bodies from storage.
         result = {
             'status': 'completed',
             'file_name': file_name,
             'backend': backend,
             'parse_method': parse_method,
             'completed_at': datetime.now().isoformat(),
+            'result_path': output_key_prefix,
+            'markdown_key': markdown_key,
             'data': {
-                'content': md_content,
                 'images_uploaded': upload_images,
                 'images_as_base64': has_base64_images,
-                'has_images': len(images_list) > 0,
-                'images': images_list
+                'has_images': has_image_files or has_base64_images,
             }
         }
         
-        # If JSON files exist, add them to result
         if json_files:
             result['json_files'] = json_files
         
-        # Add content_list directly to result (for merge task to use)
-        if content_list_data is not None:
-            result['content_list'] = content_list_data
+        # Propagate page range for pagination chunks (used by merge)
+        chunk_info = options.get('chunk_info') if isinstance(options, dict) else None
+        if isinstance(chunk_info, dict):
+            if 'start_page' in chunk_info:
+                result['start_page'] = chunk_info['start_page']
+            if 'end_page' in chunk_info:
+                result['end_page'] = chunk_info['end_page']
         
-        logger.info(f"✅ Task {task_id} completed successfully")
-        return result
+        logger.info(f"✅ Task {task_id} completed successfully (Redis result slimmed)")
+        return slim_celery_result(result)
         
     except Exception as e:
         logger.exception(f"❌ Task {task_id} failed")
@@ -1253,71 +1235,8 @@ def get_task_result(task_id: str, upload_images: bool = False) -> Dict[str, Any]
                 'backend': task_result.get('backend'),
                 'completed_at': task_result.get('completed_at')
             })
-            
-            # If Markdown content exists, add it to response
-            if 'data' in task_result and 'content' in task_result['data']:
-                content = task_result['data']['content']
-                content_length = len(content) if content else 0
-                logger.info(f"📤 Returning markdown content to API: length={content_length} chars")
-                response['markdown_content'] = content
-                response['images'] = task_result['data'].get('images', [])
-                logger.info(f"📤 Returning {len(response.get('images', []))} images to API")
-            
-            # If JSON file paths exist, add them to response and try to embed JSON content
-            if 'json_files' in task_result:
-                json_files = task_result['json_files']
-                response['json_files'] = json_files
-
-                # First, check if content_list/middle_json are directly in task_result (for merged results)
-                # This is the most reliable way as it doesn't require file I/O
-                content_list = task_result.get('content_list')
-                middle_json_data = task_result.get('middle_json')
-
-                def _safe_load_json(path_str: Optional[str]) -> Optional[Any]:
-                    """Safely load JSON either from local path or from storage."""
-                    try:
-                        if not path_str:
-                            return None
-                        # Check if it's a local file path that exists
-                        p = Path(path_str)
-                        if p.exists() and p.is_absolute():
-                            with open(p, 'r', encoding='utf-8') as f:
-                                return json.load(f)
-                        # Storage path - read from storage
-                        try:
-                            storage = get_storage()
-                            # For output files, construct full path
-                            # path_str is like "task_id/base_name/auto/base_name_xxx.json"
-                            # We need to prepend OUTPUT_DIR for local storage or bucket for S3
-                            from shared.storage import OUTPUT_DIR, S3_BUCKET_OUTPUT, STORAGE_TYPE
-                            if STORAGE_TYPE == 's3':
-                                full_path = f"{S3_BUCKET_OUTPUT}/{path_str}"
-                            else:
-                                full_path = str(Path(OUTPUT_DIR) / path_str)
-
-                            json_bytes = storage.read_file(full_path)
-                            if json_bytes:
-                                return json.loads(json_bytes.decode('utf-8'))
-                        except Exception as e:
-                            logger.debug(f"Failed to load JSON from storage path {path_str}: {e}")
-                            return None
-                    except Exception as e:
-                        logger.debug(f"Failed to load JSON from {path_str}: {e}")
-                        return None
-
-                # content_list: prefer in-memory, fallback to file path
-                if content_list is None and isinstance(json_files, dict):
-                    content_list_path = json_files.get('content_list_json')
-                    content_list = _safe_load_json(content_list_path)
-                if content_list is not None:
-                    response['content_list'] = content_list
-
-                # middle_json: prefer in-memory, fallback to file path
-                if middle_json_data is None and isinstance(json_files, dict):
-                    middle_json_path = json_files.get('middle_json_json')
-                    middle_json_data = _safe_load_json(middle_json_path)
-                if middle_json_data is not None:
-                    response['middle_json'] = middle_json_data
+            # Rebuild markdown/images/json from storage (Redis holds slim metadata only).
+            apply_status_payload(response, task_result)
                 
             # If image upload needs to be reprocessed
             if upload_images and 'data' in task_result and not task_result['data'].get('images_uploaded', False):
@@ -1552,7 +1471,7 @@ def merge_chunk_results_task(
             # Task is ready, check result
             try:
                 if result.successful():
-                    chunk_result = result.result
+                    chunk_result = hydrate_celery_result(result.result or {})
                     if chunk_result.get('status') == 'failed':
                         failed_chunks.append({
                             'task_id': chunk_task_id,
@@ -1601,6 +1520,9 @@ def merge_chunk_results_task(
                             logger.debug(f"📄 Chunk {chunk_task_id} content preview: '{preview}'")
                         
                         logger.info(f"✅ Chunk {chunk_task_id} (pages {chunk_start}-{chunk_end}): content_length={len(chunk_content) if chunk_content else 0}, has_content_list={chunk_result.get('content_list') is not None}, has_images={len(chunk_data.get('images', []))}")
+                        # Keep hydrated payload for merge (avoids a second storage reload).
+                        chunk_result['start_page'] = chunk_start
+                        chunk_result['end_page'] = chunk_end
                         chunk_results.append(chunk_result)
                 elif result.failed():
                     error_msg = str(result.result) if result.result else 'Unknown error'

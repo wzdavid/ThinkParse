@@ -4,7 +4,7 @@
 
 ThinkParse 提供了两种 API 接口：
 
-1. **MinerU 官方 API** (`/file_parse`) - 同步方式，兼容 MinerU 官方 API 格式
+1. **MinerU 官方 API** (`/file_parse`) - 同步兼容接口，适合单机或简单集成
 2. **异步队列 API** (`/api/v1/tasks/*`) - 异步方式，兼容 mineru-tianshu 项目格式
 
 ## 目录
@@ -19,6 +19,8 @@ ThinkParse 提供了两种 API 接口：
 ## MinerU 官方 API 示例
 
 `/file_parse` 端点兼容 MinerU 官方 API。它提交任务并等待完成，直接返回结果。
+
+> 说明：`/file_parse` 主要用于兼容模式和单机场景。对于 S3 存储、多 worker、多机等生产部署，建议改用异步队列 API。
 
 ### cURL 示例
 
@@ -71,6 +73,8 @@ curl -X POST "http://localhost:8000/file_parse" \
 ## 异步队列 API 示例
 
 异步队列 API 为生产环境部署和批量处理提供了更好的可扩展性。
+
+它也是 S3 存储、多 worker、多机生产部署的推荐接口。
 
 ## Python 客户端示例
 

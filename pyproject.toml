@@ -1,6 +1,6 @@
 [project]
 name = "think-parse"
-version = "1.1.0"
+version = "1.2.0"
 description = "ThinkParse — enterprise-grade document parsing service with asynchronous queue processing based on Celery"
 readme = "README.md"
 requires-python = ">=3.10"

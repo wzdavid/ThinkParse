@@ -1,8 +1,9 @@
 name: mineru
 
 services:
-  # Redis service (optional, use profile to enable)
-  # To use external Redis, set REDIS_URL in .env file and don't use redis profile
+  # Redis persists AOF under /data. Keep that host path on a different disk from
+  # mineru_temp / mineru_output so bulk parsing cannot fill the Redis volume
+  # (historical MISCONF / stop-writes). Set REDIS_DATA_PATH in docker/.env.
   redis:
     profiles: ["redis"]
     image: redis:latest
@@ -11,7 +12,7 @@ services:
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
-      - redis_data:/data
+      - ${REDIS_DATA_PATH:-redis_data}:/data
     networks:
       - mineru-network
     command: redis-server --appendonly yes
@@ -59,6 +60,8 @@ services:
   mineru-worker-gpu:
     profiles: ["mineru-gpu"]
     image: mineru-worker:latest
+    # Single worker: NVIDIA count:all (visible), but MinerU typically uses cuda:0 only.
+    # For one worker per GPU card, see docker-compose.multi-gpu.yml.
     # NOTE: This service depends on base image 'mineru-vllm:latest'
     # Build the base image first using: docker build -f docker/Dockerfile.base -t mineru-vllm:latest ..
     # Or use the build script: sh build.sh --worker-gpu
@@ -149,8 +152,9 @@ services:
     environment:
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
       # Cleanup scheduler configuration
-      - CLEANUP_INTERVAL_HOURS=${CLEANUP_INTERVAL_HOURS:-24}
+      - CLEANUP_INTERVAL_HOURS=${CLEANUP_INTERVAL_HOURS:-6}
       - CLEANUP_EXTRA_HOURS=${CLEANUP_EXTRA_HOURS:-2}
+      - TEMP_MAX_AGE_HOURS=${TEMP_MAX_AGE_HOURS:-6}
     volumes:
       # Note: When using S3 storage (MINERU_STORAGE_TYPE=s3), the following volumes will not be used
       # but kept for backward compatibility
@@ -161,7 +165,7 @@ services:
       - ../shared:/app/shared
     networks:
       - mineru-network
-    command: python cleanup/cleanup_scheduler.py --interval ${CLEANUP_INTERVAL_HOURS:-24} --extra-hours ${CLEANUP_EXTRA_HOURS:-2}
+    command: python cleanup/cleanup_scheduler.py --interval ${CLEANUP_INTERVAL_HOURS:-6} --extra-hours ${CLEANUP_EXTRA_HOURS:-2} --temp-max-age ${TEMP_MAX_AGE_HOURS:-6}
 
 volumes:
   mineru_output:

@@ -4,7 +4,7 @@ This document provides various usage examples for ThinkParse.
 
 ThinkParse provides two API interfaces:
 
-1. **Official MinerU API** (`/file_parse`) - Synchronous, compatible with official MinerU API format
+1. **Official MinerU API** (`/file_parse`) - Synchronous compatibility interface for single-host or simple integrations
 2. **Async Queue API** (`/api/v1/tasks/*`) - Asynchronous, compatible with mineru-tianshu project format
 
 ## Table of Contents
@@ -19,6 +19,8 @@ ThinkParse provides two API interfaces:
 ## Official MinerU API Examples
 
 The `/file_parse` endpoint is compatible with the official MinerU API. It submits tasks and waits for completion, returning results directly.
+
+> Note: `/file_parse` is intended for compatibility and single-host usage. For production deployments with S3 storage, multiple workers, or multiple nodes, use the async queue API instead.
 
 ### cURL Example
 
@@ -71,6 +73,8 @@ curl -X POST "http://localhost:8000/file_parse" \
 ## Async Queue API Examples
 
 The async queue API provides better scalability for production deployments and batch processing.
+
+It is the recommended interface for S3 storage, multi-worker, and multi-node production deployments.
 
 ## Python Client Examples
 

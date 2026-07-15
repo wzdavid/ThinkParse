@@ -33,12 +33,13 @@ sys.path.insert(0, str(project_root))
 
 from shared import celeryconfig
 from shared.storage import get_storage
+from shared.task_result import apply_status_payload, hydrate_celery_result
 
 # Create FastAPI application
 app = FastAPI(
     title="ThinkParse API Server",
     description="Document parsing service — handles task submission and querying only",
-    version="1.1.0"
+    version="1.2.0"
 )
 
 # Enable CORS
@@ -112,7 +113,7 @@ async def root():
     """Root endpoint with service metadata."""
     return {
         "service": "ThinkParse API Server",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "description": "Document parsing service",
         "endpoints": {
             "submit": "/api/v1/tasks/submit",
@@ -291,6 +292,9 @@ async def parse_pdf(
             try:
                 # Wait for task completion (synchronous wait)
                 result = task_result.get(timeout=7200)  # 2 hours timeout
+                # Redis holds slim metadata; rebuild bodies from storage for this sync API.
+                if isinstance(result, dict):
+                    result = hydrate_celery_result(result)
                 
                 if result.get('status') == 'failed':
                     completed_results[pdf_name] = {
@@ -568,58 +572,8 @@ async def get_task_status(task_id: str, upload_images: bool = Query(False, descr
                 'backend': task_result.get('backend'),
                 'completed_at': task_result.get('completed_at')
             })
-
-            if 'data' in task_result and isinstance(task_result['data'], dict):
-                response['markdown_content'] = task_result['data'].get('content')
-                response['images'] = task_result['data'].get('images', [])
-
-            # Priority 1: Use content_list/middle_json directly from task_result (for merged results)
-            if 'content_list' in task_result:
-                response['content_list'] = task_result['content_list']
-            if 'middle_json' in task_result:
-                response['middle_json'] = task_result['middle_json']
-
-            # Priority 2: Load JSON from storage when only json_files keys are present
-            if 'json_files' in task_result and isinstance(task_result['json_files'], dict):
-                json_info = task_result['json_files']
-
-                def _safe_load_json_from_storage(key: str | None) -> Any | None:
-                    if not key:
-                        return None
-                    try:
-                        storage = get_storage()
-                        # Resolve path: worker stores output_key_prefix + key; storage uses OUTPUT_DIR (local) or bucket (s3)
-                        if storage.storage_type == 'local':
-                            from shared.storage import OUTPUT_DIR
-                            read_path = str(Path(OUTPUT_DIR) / key)
-                        else:
-                            from shared.storage import S3_BUCKET_OUTPUT
-                            read_path = f"{S3_BUCKET_OUTPUT}/{key}"
-                        if storage.file_exists(read_path):
-                            data_bytes = storage.read_file(read_path)
-                            return json.loads(data_bytes.decode('utf-8'))
-                    except Exception as exc:
-                        logger.debug(
-                            "Could not load JSON from storage for task %s key=%s: %s",
-                            task_id,
-                            key,
-                            exc,
-                        )
-                    return None
-
-                # content_list
-                if 'content_list' not in response:
-                    content_list_key = json_info.get('content_list_json')
-                    content_list = _safe_load_json_from_storage(content_list_key)
-                    if content_list is not None:
-                        response['content_list'] = content_list
-
-                # middle_json
-                if 'middle_json' not in response:
-                    middle_json_key = json_info.get('middle_json_json')
-                    middle_json = _safe_load_json_from_storage(middle_json_key)
-                    if middle_json is not None:
-                        response['middle_json'] = middle_json
+            # Rebuild markdown/images/json from storage (Redis holds slim metadata only).
+            apply_status_payload(response, task_result)
 
         elif result.failed():
             error_info = result.result if result.result else result.traceback
@@ -766,7 +720,7 @@ async def health_check():
             'success': True,
             'status': 'healthy',
             'service': 'ThinkParse API Server',
-            'version': '1.1.0',
+            'version': '1.2.0',
             'workers': {
                 'active': active_workers,
                 'available': active_workers > 0

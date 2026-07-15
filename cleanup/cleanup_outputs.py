@@ -285,13 +285,14 @@ def _cleanup_s3_outputs(storage, dry_run: bool, extra_hours: int):
     print("=" * 60)
 
 
-def cleanup_temp_dir(dry_run: bool = False, max_age_hours: int = 24):
+def cleanup_temp_dir(dry_run: bool = False, max_age_hours: int = 6):
     """
     Clean up temporary directory
     
     Args:
         dry_run: If True, only show files to be deleted without actually deleting
-        max_age_hours: Maximum retention time for temporary files (hours)
+        max_age_hours: Maximum retention time for temporary files (hours).
+            Default 6h stays above TASK_TIME_LIMIT (2h) with headroom for orphans.
     """
     storage = get_storage()
     
@@ -302,7 +303,8 @@ def cleanup_temp_dir(dry_run: bool = False, max_age_hours: int = 24):
         print("Cleaning Temporary Directory (S3 Storage)")
         print("=" * 60)
         print("ℹ️  When using S3 storage, temporary files are automatically cleaned by S3 lifecycle policy")
-        print("   Recommend configuring lifecycle policy on S3 server (auto-delete after 24 hours)")
+        print("   Recommend aligning lifecycle expiration with TEMP_MAX_AGE_HOURS (default 6h);")
+        print("   many S3 providers only support day-level rules (often 1 day).")
         print("   No application-level cleanup of temporary files needed")
         print("=" * 60)
         return
@@ -393,6 +395,14 @@ def cleanup_temp_dir(dry_run: bool = False, max_age_hours: int = 24):
     print("=" * 60)
 
 
+def _env_int_temp_max_age() -> int:
+    raw = os.getenv('TEMP_MAX_AGE_HOURS', '6')
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 6
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Clean up MinerU expired output files',
@@ -439,8 +449,8 @@ Examples:
     parser.add_argument(
         '--temp-max-age',
         type=int,
-        default=24,
-        help='Maximum retention time for temporary files (hours, default: 24)'
+        default=_env_int_temp_max_age(),
+        help='Maximum retention time for temporary files (hours, default: 6)'
     )
     
     args = parser.parse_args()

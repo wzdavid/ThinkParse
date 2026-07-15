@@ -95,8 +95,9 @@ This document details all available configuration options.
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `CLEANUP_INTERVAL_HOURS` | Cleanup interval (hours) | `24` | `12` |
-| `CLEANUP_EXTRA_HOURS` | Extra retention time (hours) | `2` | `4` |
+| `CLEANUP_INTERVAL_HOURS` | Cleanup interval (hours) | `6` | `12` |
+| `CLEANUP_EXTRA_HOURS` | Extra retention time for outputs (hours) | `2` | `4` |
+| `TEMP_MAX_AGE_HOURS` | Local `TEMP_DIR` orphan max age (hours); keep above `TASK_TIME_LIMIT` | `6` | `4` |
 
 ## Configuration Examples
 

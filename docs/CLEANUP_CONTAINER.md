@@ -7,7 +7,7 @@ The `mineru-cleanup` container is an independent cleanup service for regularly c
 ## Features
 
 - **Automatic Storage Type Detection**: Automatically adjusts cleanup strategy based on `MINERU_STORAGE_TYPE` environment variable
-- **Scheduled Execution**: Configurable cleanup interval, default is every 24 hours
+- **Scheduled Execution**: Configurable cleanup interval, default is every 6 hours
 - **Flexible Configuration**: Supports preview mode, extra retention time, and other configurations
 
 ## Storage Mode Adaptation
@@ -15,7 +15,7 @@ The `mineru-cleanup` container is an independent cleanup service for regularly c
 ### Local Storage Mode (`MINERU_STORAGE_TYPE=local`)
 
 Cleanup service will clean:
-- ✅ **Temporary Files**: Expired files in `TEMP_DIR` (default 24 hours)
+- ✅ **Temporary Files**: Expired files in `TEMP_DIR` (default `TEMP_MAX_AGE_HOURS=6`)
 - ✅ **Output Files**: Expired task directories in `OUTPUT_DIR` (based on `RESULT_EXPIRES` configuration)
 
 ### S3 Storage Mode (`MINERU_STORAGE_TYPE=s3`)
@@ -24,7 +24,7 @@ Cleanup service will clean:
 - ❌ **Temporary Files**: Handled by S3 lifecycle policy automatically, no application-layer cleanup needed
 - ✅ **Output Files**: Expired task directories in `mineru-output` bucket (based on `RESULT_EXPIRES` configuration)
 
-> 💡 **Recommended Configuration**: When using S3 storage, recommend configuring S3 lifecycle policy (auto-delete temporary files after 24 hours) on the S3 service side. The cleanup container only handles output file cleanup.
+> 💡 **Recommended Configuration**: When using S3 storage, configure an S3 lifecycle policy for the temp bucket. Align with `TEMP_MAX_AGE_HOURS` when the provider supports sub-day rules; many providers only support day-level expiration (often 1 day). The cleanup container only handles output file cleanup.
 
 ## Startup Methods
 
@@ -47,8 +47,9 @@ Configure in `.env` file:
 MINERU_STORAGE_TYPE=s3  # or local
 
 # Cleanup service configuration
-CLEANUP_INTERVAL_HOURS=24    # Cleanup interval (hours)
-CLEANUP_EXTRA_HOURS=2        # Extra retention time (hours)
+CLEANUP_INTERVAL_HOURS=6     # Cleanup interval (hours)
+CLEANUP_EXTRA_HOURS=2        # Extra retention time for outputs (hours)
+TEMP_MAX_AGE_HOURS=6         # Local TEMP_DIR orphan max age (keep > TASK_TIME_LIMIT)
 
 # S3 storage configuration (if using S3 storage)
 MINERU_S3_ENDPOINT=http://minio:9000
@@ -97,8 +98,9 @@ python cleanup/cleanup_outputs.py --output-only
 
 ### Temporary File Cleanup
 
-- **Local Storage**: Clean temporary files in `TEMP_DIR` older than 24 hours
+- **Local Storage**: Clean temporary files in `TEMP_DIR` older than `TEMP_MAX_AGE_HOURS` (default 6 hours). Successful tasks delete their upload temps immediately; this sweep is mainly for orphans.
 - **S3 Storage**: Handled by S3 lifecycle policy, cleanup container does not handle
+- **Safety**: Default 6h stays above `TASK_TIME_LIMIT` (2h) so in-flight parses are not deleted mid-task
 
 ## Logs and Monitoring
 
@@ -158,7 +160,7 @@ Check:
 ## Best Practices
 
 1. **When Using S3 Storage**:
-   - Configure S3 lifecycle policy to handle temporary files (auto-delete after 24 hours)
+   - Configure S3 lifecycle policy to handle temporary files (align with `TEMP_MAX_AGE_HOURS` when possible; day-level rules often use 1 day)
    - Cleanup container only handles output file cleanup
    - Regularly check cleanup logs to ensure cleanup executes normally
 

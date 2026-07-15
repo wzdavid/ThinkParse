@@ -7,7 +7,7 @@
 ## 功能特性
 
 - **自动检测存储类型**：根据 `MINERU_STORAGE_TYPE` 环境变量自动调整清理策略
-- **定时执行**：可配置清理间隔，默认每 24 小时执行一次
+- **定时执行**：可配置清理间隔，默认每 6 小时执行一次
 - **灵活配置**：支持预览模式、额外保留时间等配置
 
 ## 存储模式适配
@@ -15,7 +15,7 @@
 ### 本地存储模式（`MINERU_STORAGE_TYPE=local`）
 
 清理服务会清理：
-- ✅ **临时文件**：`TEMP_DIR` 中的过期文件（默认 24 小时）
+- ✅ **临时文件**：`TEMP_DIR` 中的过期文件（默认 `TEMP_MAX_AGE_HOURS=6`）
 - ✅ **输出文件**：`OUTPUT_DIR` 中的过期任务目录（基于 `RESULT_EXPIRES` 配置）
 
 ### S3 存储模式（`MINERU_STORAGE_TYPE=s3`）
@@ -24,7 +24,7 @@
 - ❌ **临时文件**：由 S3 生命周期策略自动处理，无需应用层清理
 - ✅ **输出文件**：`mineru-output` bucket 中的过期任务目录（基于 `RESULT_EXPIRES` 配置）
 
-> 💡 **推荐配置**：使用 S3 存储时，建议在 S3 服务端配置生命周期策略（24小时自动删除临时文件），清理容器只负责输出文件的清理。
+> 💡 **推荐配置**：使用 S3 存储时，建议在 S3 侧为 temp bucket 配置生命周期。若支持亚天级规则，可与 `TEMP_MAX_AGE_HOURS` 对齐；多数云厂商仅支持按天（常见 1 天）。清理容器只负责输出文件清理。
 
 ## 启动方式
 
@@ -47,8 +47,9 @@ docker compose logs -f mineru-cleanup
 MINERU_STORAGE_TYPE=s3  # 或 local
 
 # 清理服务配置
-CLEANUP_INTERVAL_HOURS=24    # 清理间隔（小时）
-CLEANUP_EXTRA_HOURS=2        # 额外保留时间（小时）
+CLEANUP_INTERVAL_HOURS=6     # 清理间隔（小时）
+CLEANUP_EXTRA_HOURS=2        # 输出文件额外保留时间（小时）
+TEMP_MAX_AGE_HOURS=6         # 本地 TEMP_DIR 孤儿文件最长保留（需大于 TASK_TIME_LIMIT）
 
 # S3 存储配置（如果使用 S3 存储）
 MINERU_S3_ENDPOINT=http://minio:9000
@@ -99,8 +100,9 @@ python cleanup/cleanup_outputs.py --output-only
 
 ### 临时文件清理
 
-- **本地存储**：清理 `TEMP_DIR` 中超过 24 小时的临时文件
+- **本地存储**：清理 `TEMP_DIR` 中超过 `TEMP_MAX_AGE_HOURS`（默认 6 小时）的文件。成功任务会立即删除上传 temp，此扫尾主要针对孤儿文件。
 - **S3 存储**：由 S3 生命周期策略处理，清理容器不处理
+- **安全边界**：默认 6 小时大于 `TASK_TIME_LIMIT`（2 小时），避免误删仍在解析中的输入文件
 
 ## 日志和监控
 
@@ -160,7 +162,7 @@ docker compose logs --tail=100 mineru-cleanup
 ## 最佳实践
 
 1. **使用 S3 存储时**：
-   - 配置 S3 生命周期策略处理临时文件（24小时自动删除）
+   - 配置 S3 生命周期策略处理临时文件（尽量与 `TEMP_MAX_AGE_HOURS` 对齐；按天粒度时常用 1 天）
    - 清理容器只负责输出文件的清理
    - 定期检查清理日志，确保清理正常执行
 

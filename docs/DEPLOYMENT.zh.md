@@ -8,6 +8,7 @@
 - [生产环境配置](#生产环境配置)
 - [扩展和优化](#扩展和优化)
 - [监控和日志](#监控和日志)
+- [大规模多机部署](PRODUCTION_MULTI_NODE.zh.md) — S3 + 共享 Redis + 多 GPU 节点
 
 ## Docker 部署
 
@@ -29,6 +30,21 @@ cd docker && docker compose --profile mineru-cpu up -d
 cd docker && docker compose --profile mineru-gpu up -d
 ```
 
+**多卡（每卡一个 Worker）**：默认 `mineru-gpu` 是单个 Worker（通常只用 `cuda:0`）。使用多卡模板：
+
+```bash
+# docker/.env
+COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml
+COMPOSE_PROFILES=redis,mineru-gpu-0,mineru-gpu-1
+GPU_WORKER_CONCURRENCY=1
+```
+
+```bash
+cd docker && docker compose up -d
+```
+
+不要同时启用 `mineru-gpu` 与 `mineru-gpu-N`。详见 [docker/README.md](../docker/README.md#multi-gpu-one-worker-per-card)。
+
 ### 构建自定义镜像
 
 ```bash
@@ -47,9 +63,33 @@ cd docker && docker compose build mineru-worker-gpu
 
 **安全配置**:
 ```bash
-# .env
+# .env（项目根目录）
 REDIS_URL=redis://:your-strong-password@redis:6379/0
 ```
+
+**数据目录隔离（生产 / 大批量解析必做）**:
+
+大批量文档解析会占满 `mineru_temp` / `mineru_output` 所在磁盘。若 Redis 的 AOF/RDB 与之同盘，可能触发 `MISCONF`（stop-writes），任务提交返回 HTTP 500。
+
+在 `docker/.env` 中设置 `REDIS_DATA_PATH`，指向与 temp/output **不同磁盘**上的独立宿主机目录：
+
+```bash
+# docker/.env
+# 必须与 mineru_temp / mineru_output 所在 Docker 卷不在同一块磁盘
+REDIS_DATA_PATH=/data/redis
+
+# 示例：Redis 放 /data，解析临时/输出文件放另一块盘
+# REDIS_DATA_PATH=/mnt/ssd-redis/mineru-redis
+```
+
+创建目录后重建 Redis 容器使挂载生效：
+
+```bash
+mkdir -p /data/redis
+cd docker && docker compose --profile redis up -d redis
+```
+
+未设置时回退为命名卷 `redis_data`（通常仍与 temp/output 同在 Docker 数据盘上，**不适合大批量场景**）。
 
 **Redis 集群**:
 - 配置 Redis Sentinel 或 Cluster
@@ -239,7 +279,7 @@ docker restart mineru-redis
 ## 性能优化
 
 1. **Worker 数量**: 根据 CPU/GPU 资源调整 Worker 数量
-2. **Redis 优化**: 配置 Redis 持久化和内存限制
+2. **Redis 优化**: 配置 Redis 持久化和内存限制；`REDIS_DATA_PATH` 必须与 temp/output 分盘
 3. **存储优化**: 使用 SSD 或高性能 S3 服务
 4. **网络优化**: API 和 Worker 部署在同一网络
 

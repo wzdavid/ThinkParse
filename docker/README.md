@@ -74,8 +74,13 @@ Done! Services are now running.
 
 ```bash
 # Set in docker/.env (choose one)
-COMPOSE_PROFILES=redis,mineru-gpu      # GPU Worker + internal Redis (default)
+COMPOSE_PROFILES=redis,mineru-gpu      # Single GPU Worker + internal Redis (default)
 COMPOSE_PROFILES=redis,mineru-cpu      # CPU Worker + internal Redis
+
+# Multi-GPU (one worker per card) — also set COMPOSE_FILE:
+# COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml
+# COMPOSE_PROFILES=redis,mineru-gpu-0,mineru-gpu-1
+# GPU_WORKER_CONCURRENCY=1
 
 # Using external Redis (without redis profile)
 COMPOSE_PROFILES=mineru-gpu
@@ -90,14 +95,48 @@ cd docker && docker compose up -d
 - `mineru-cleanup` service **starts automatically** (no profile, cleanup service)
 - `redis` service requires `redis` profile
 - `mineru-worker-cpu` requires `mineru-cpu` profile
-- `mineru-worker-gpu` requires `mineru-gpu` profile
+- `mineru-worker-gpu` requires `mineru-gpu` profile (single worker; sees all GPUs, usually uses cuda:0)
+- Multi-GPU: use `docker-compose.multi-gpu.yml` + profiles `mineru-gpu-0` … `mineru-gpu-7` (do **not** also enable `mineru-gpu`)
 - **Always run `docker compose` from the `docker/` directory** (`cd docker` first) so that `docker/.env` (including `COMPOSE_PROFILES`) is loaded correctly
+
+### Multi-GPU (one worker per card)
+
+Default `mineru-gpu` is a single worker with `count: all`. To use multiple cards in parallel:
+
+```bash
+# docker/.env
+COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml
+COMPOSE_PROFILES=redis,mineru-gpu-0,mineru-gpu-1
+GPU_WORKER_CONCURRENCY=1
+```
+
+```bash
+cd docker && docker compose up -d
+# Verify each worker only sees one device:
+docker exec mineru-worker-gpu-0 nvidia-smi -L
+docker exec mineru-worker-gpu-1 nvidia-smi -L
+```
+
+Enable only profiles for cards that exist (`mineru-gpu-0` … `mineru-gpu-7`). Copy a service block in `docker-compose.multi-gpu.yml` if you need GPU index ≥ 8.
+
+**Dedicated GPU host (multi-node):** also load `docker-compose.worker-only.yml`, otherwise `mineru-api` / `mineru-cleanup` start automatically:
+
+```bash
+COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml:docker-compose.worker-only.yml
+COMPOSE_PROFILES=mineru-gpu-0,mineru-gpu-1
+```
+
+See [Large-scale multi-node](../docs/PRODUCTION_MULTI_NODE.md).
 
 **Manual Profile Selection** (command line, not recommended):
 
 ```bash
 # Start with GPU Worker and internal Redis (default)
 cd docker && docker compose --profile redis --profile mineru-gpu up -d
+
+# Multi-GPU example (2 cards)
+cd docker && docker compose -f docker-compose.yml -f docker-compose.multi-gpu.yml \
+  --profile redis --profile mineru-gpu-0 --profile mineru-gpu-1 up -d
 
 # Start with CPU Worker and internal Redis
 cd docker && docker compose --profile redis --profile mineru-cpu up -d
@@ -215,6 +254,22 @@ Configure in `.env` (project root):
 ```bash
 REDIS_URL=redis://redis:6379/0
 ```
+
+**Production: isolate Redis data disk**
+
+Set `REDIS_DATA_PATH` in `docker/.env` to a host directory on a **different disk** from `mineru_temp` / `mineru_output`. Otherwise bulk parsing can fill the shared disk and Redis may refuse writes (`MISCONF`):
+
+```bash
+# docker/.env
+REDIS_DATA_PATH=/data/redis
+```
+
+```bash
+mkdir -p /data/redis
+cd docker && docker compose --profile redis up -d redis
+```
+
+See [Deployment Guide](../docs/DEPLOYMENT.md#1-redis-configuration) for details.
 
 #### Option 2: Use External Redis on Host Machine
 

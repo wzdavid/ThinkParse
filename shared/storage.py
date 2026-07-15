@@ -285,10 +285,11 @@ class StorageAdapter:
             # Local storage directly returns path
             return remote_path
         
-        # S3 storage needs to download to local
+        # S3 storage needs to download to local. Preserve the remote suffix so
+        # callers that inspect Path(...).suffix (e.g. get_file_type) still work.
         if local_path is None:
-            # Create temporary file
-            fd, local_path = tempfile.mkstemp()
+            suffix = Path(remote_path).suffix
+            fd, local_path = tempfile.mkstemp(suffix=suffix)
             os.close(fd)
         
         data = self.read_file(remote_path)

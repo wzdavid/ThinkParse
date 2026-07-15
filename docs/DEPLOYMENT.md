@@ -8,6 +8,7 @@ This document provides detailed instructions on how to deploy ThinkParse in prod
 - [Production Configuration](#production-configuration)
 - [Scaling and Optimization](#scaling-and-optimization)
 - [Monitoring and Logging](#monitoring-and-logging)
+- [Large-scale multi-node](PRODUCTION_MULTI_NODE.md) — S3 + shared Redis + multi-GPU hosts
 
 ## Docker Deployment
 
@@ -29,6 +30,21 @@ cd docker && docker compose --profile mineru-cpu up -d
 cd docker && docker compose --profile mineru-gpu up -d
 ```
 
+**Multi-GPU (one worker per card)**: default `mineru-gpu` is a single worker (usually `cuda:0` only). Use the override template:
+
+```bash
+# docker/.env
+COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml
+COMPOSE_PROFILES=redis,mineru-gpu-0,mineru-gpu-1
+GPU_WORKER_CONCURRENCY=1
+```
+
+```bash
+cd docker && docker compose up -d
+```
+
+Do not enable `mineru-gpu` together with `mineru-gpu-N`. Details: [docker/README.md](../docker/README.md#multi-gpu-one-worker-per-card).
+
 ### Building Custom Images
 
 ```bash
@@ -47,9 +63,33 @@ cd docker && docker compose build mineru-worker-gpu
 
 **Security Configuration**:
 ```bash
-# .env
+# .env (project root)
 REDIS_URL=redis://:your-strong-password@redis:6379/0
 ```
+
+**Data path isolation (required for production / bulk parsing)**:
+
+Bulk document parsing can fill the disk used by `mineru_temp` / `mineru_output`. If Redis AOF/RDB lives on the same disk, Redis may enter `MISCONF` (stop-writes) and task submit fails with HTTP 500.
+
+Set `REDIS_DATA_PATH` in `docker/.env` to a **dedicated host directory on a different disk** from temp/output:
+
+```bash
+# docker/.env
+# Use a path on a separate disk/partition from Docker volumes for mineru_temp / mineru_output
+REDIS_DATA_PATH=/data/redis
+
+# Example: Redis on /data, parsing temp/output on another mount
+# REDIS_DATA_PATH=/mnt/ssd-redis/mineru-redis
+```
+
+Then recreate the Redis container so the bind mount takes effect:
+
+```bash
+mkdir -p /data/redis
+cd docker && docker compose --profile redis up -d redis
+```
+
+If unset, Compose falls back to the named volume `redis_data` (often still on the same Docker data disk as temp/output — **not recommended for bulk workloads**).
 
 **Redis Cluster**:
 - Configure Redis Sentinel or Cluster
@@ -239,7 +279,7 @@ docker restart mineru-redis
 ## Performance Optimization
 
 1. **Worker Count**: Adjust worker count based on CPU/GPU resources
-2. **Redis Optimization**: Configure Redis persistence and memory limits
+2. **Redis Optimization**: Configure Redis persistence and memory limits; keep `REDIS_DATA_PATH` on a disk separate from temp/output
 3. **Storage Optimization**: Use SSD or high-performance S3 service
 4. **Network Optimization**: Deploy API and Worker on the same network
 

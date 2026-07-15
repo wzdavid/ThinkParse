@@ -95,8 +95,9 @@
 
 | 变量名 | 说明 | 默认值 | 示例 |
 |--------|------|--------|------|
-| `CLEANUP_INTERVAL_HOURS` | 清理间隔（小时） | `24` | `12` |
-| `CLEANUP_EXTRA_HOURS` | 额外保留时间（小时） | `2` | `4` |
+| `CLEANUP_INTERVAL_HOURS` | 清理间隔（小时） | `6` | `12` |
+| `CLEANUP_EXTRA_HOURS` | 输出文件额外保留时间（小时） | `2` | `4` |
+| `TEMP_MAX_AGE_HOURS` | 本地 `TEMP_DIR` 孤儿文件最长保留（小时）；需大于 `TASK_TIME_LIMIT` | `6` | `4` |
 
 ## 配置示例
 
