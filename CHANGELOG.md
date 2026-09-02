@@ -10,6 +10,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be documented here
 
+## [1.3.0] - 2026-09-02
+
+Production stability and observability upgrade with MinerU 3.4.5, native
+long-document processing, cancellable engine isolation, and layered health
+diagnostics.
+
+### Added
+- Document MinerU processing-window configuration and single-GPU recovery guidance
+- Add liveness, readiness, and deep diagnostic health endpoints
+- Publish Worker/task heartbeat state to Redis for operational visibility
+- Report actual Redis broker queue depth and active-task runtime
+- Run MinerU in a persistent isolated process so models are reused while active parses remain killable
+- Sample GPU identity, driver, utilization, memory, and temperature metrics
+- Add a Worker watchdog that exits overdue tasks for supervisor-driven recovery
+- Persist watchdog cancellation before exit so late-ack task redelivery terminates safely
+- Probe configured S3 buckets during readiness checks with a bounded API wait
+- Set Redis broker visibility above the task/watchdog limits to prevent duplicate long-task delivery
+
+### Changed
+- Default Worker concurrency to one active task per GPU
+- Use MinerU's built-in processing windows for long PDFs by default
+- Keep ThinkParse physical PDF splitting as a deprecated compatibility fallback
+- Align Compose, environment examples, and deployment documentation with the stable single-GPU profile
+- Move blocking Celery waits and inspections off the FastAPI event loop
+- Store cancellation requests in Redis and terminate the active isolated MinerU engine
+- Enforce MinerU wall-clock timeout independently of unsupported Celery thread time limits
+- Restart the isolated engine automatically after cancellation, timeout, crash, or parse failure
+- Keep `live` and `ready` health payloads aggregate while exposing full runtime diagnostics through `deep`
+- Upgrade MinerU from **3.4.0** to **3.4.5**
+- Pin `mineru[pipeline]==3.4.5` in `worker/requirements.txt`
+- Pin `mineru[core]==3.4.5` in GPU base Docker image (`docker/Dockerfile.base`)
+- Add `--rebuild-base` to prevent MinerU upgrades from reusing a stale GPU base image
+
+### Upgrade notes
+- Updating the repository or container images does not modify an existing `.env`;
+  compare it with `.env.example` and apply the new settings explicitly
+- Rebuild the MinerU base and Worker images after upgrading
+  (`cd docker && sh build.sh --worker-gpu --rebuild-base`)
+- Restart API + Worker + cleanup containers so all nodes run 3.4.5
+- Existing task submission and result response shapes remain compatible with
+  ThinkExtract / ThinkDoc
+- Cancellation now acknowledges with `cancel_requested`; clients should poll
+  until the task reaches `cancelled` or another terminal state
+- `/api/v1/health` and `/health/ready` return HTTP 503 while dependencies are
+  unavailable; `/health/deep` contains deployment details and must be restricted
+- MinerU 3.4.5 fixes: PDFium page bounds, Latin/CJK font detection, duplicate character rendering, DOCX table special characters, Unicode surrogate pairs
+- Existing deployments must explicitly set the new Worker concurrency,
+  processing-window, heartbeat, and engine-timeout environment values
+
 ## [1.2.0] - 2026-07-15
 
 Production hardening: keep Redis as a slim Celery queue (no parse bodies), isolate Redis disk from temp/output, shorten temp cleanup defaults, and document single-host multi-GPU plus multi-node scale-out.
@@ -114,6 +163,7 @@ Upgrade the parsing engine to **MinerU 3.4.0** and rebrand the project as **Thin
 
 ## Version History
 
+- **1.3.0**: MinerU 3.4.5, cancellable engine isolation, native long-document windows, and layered health diagnostics
 - **1.2.0**: Slim Redis results (hydrate from storage); Redis/temp disk isolation; faster temp cleanup; multi-GPU and multi-node deploy templates
 - **1.1.0**: Rebrand to ThinkParse; MinerU 3.4.0 upgrade with subprocess environment variable fix
 - **1.0.0**: Initial release with decoupled architecture and comprehensive features

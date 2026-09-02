@@ -295,13 +295,15 @@ sh build.sh --api --worker-cpu
 sh build.sh --all              # 构建所有镜像（忽略 COMPOSE_PROFILES）
 sh build.sh --api              # 仅构建 API
 sh build.sh --worker-cpu       # 仅构建 CPU Worker
-sh build.sh --worker-gpu       # 仅构建 GPU Worker（会自动先构建基础镜像）
+sh build.sh --worker-gpu       # 构建 GPU Worker（缺少基础镜像时自动构建）
 sh build.sh --cleanup          # 仅构建清理服务
+sh build.sh --worker-gpu --rebuild-base  # MinerU 升级后强制重建基础镜像
 ```
 
 > 💡 **提示**：
 > - 不带参数运行 `sh build.sh` 时，会自动读取 `docker/.env` 中的 `COMPOSE_PROFILES`，选择构建对应的 Worker
-> - 构建脚本会自动检查并构建 GPU Worker 所需的基础镜像 `mineru-vllm:latest`，无需手动处理
+> - 构建脚本会检查 GPU Worker 所需的 `mineru-vllm:latest`，缺失时自动构建
+> - 修改 MinerU 版本后应使用 `--rebuild-base`；否则会复用已有基础镜像
 > - CPU 和 GPU Worker 是互斥的，选择一种即可
 > - 如果 `COMPOSE_PROFILES` 未设置或 `.env` 文件不存在，会构建所有服务
 

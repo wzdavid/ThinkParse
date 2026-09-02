@@ -6,6 +6,7 @@ This document provides detailed instructions on how to deploy ThinkParse in prod
 
 - [Docker Deployment](#docker-deployment)
 - [Production Configuration](#production-configuration)
+- [Version 1.3.0 Trial Rollout](#version-130-trial-rollout)
 - [Scaling and Optimization](#scaling-and-optimization)
 - [Monitoring and Logging](#monitoring-and-logging)
 - [Large-scale multi-node](PRODUCTION_MULTI_NODE.md) — S3 + shared Redis + multi-GPU hosts
@@ -116,6 +117,7 @@ MINERU_S3_SECURE=true
 ```bash
 CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
 ENVIRONMENT=production
+HEALTH_DEPENDENCY_TIMEOUT_SECONDS=5
 ```
 
 ### 4. File Size Limits
@@ -127,15 +129,83 @@ MAX_FILE_SIZE=104857600  # 100MB, adjust as needed
 ### 5. Worker Configuration
 
 ```bash
-# Worker concurrency (adjust based on server resources)
-WORKER_CONCURRENCY=2
+# GPU worker: run one active MinerU task per card
+WORKER_CONCURRENCY=1
 
 # Worker pool type (must use threads)
 WORKER_POOL=threads
 
+# Use MinerU 3.x built-in processing windows for long documents
+MINERU_ENABLE_PAGINATION=false
+MINERU_PROCESSING_WINDOW_SIZE=64
+
+# Engine recovery and observability
+MINERU_ENGINE_TIMEOUT_SECONDS=7200
+WORKER_WATCHDOG_TIMEOUT_SECONDS=7500
+BROKER_VISIBILITY_TIMEOUT_SECONDS=9000
+WORKER_HEARTBEAT_SECONDS=15
+GPU_METRICS_INTERVAL_SECONDS=30
+
 # Memory limit (KB)
 WORKER_MAX_MEMORY_PER_CHILD=2000000  # 2GB
 ```
+
+Do not scale a single GPU by raising `WORKER_CONCURRENCY`; concurrent parses
+compete for the same device. Add GPU workers instead. Legacy ThinkParse
+physical splitting can lose cross-page context and introduce chunk/merge
+scheduling stalls, so it remains an explicit compatibility fallback only.
+
+Keep `WORKER_WATCHDOG_TIMEOUT_SECONDS` greater than
+`MINERU_ENGINE_TIMEOUT_SECONDS`, and keep
+`BROKER_VISIBILITY_TIMEOUT_SECONDS` greater than the watchdog timeout. This
+prevents Redis from redelivering a valid long-running task. `RESULT_EXPIRES`
+must be greater again so cancellation survives any redelivery. Downstream
+request timeouts should include enough additional margin for the engine to
+report its terminal state.
+
+## Version 1.3.0 Trial Rollout
+
+Version 1.3.0 is suitable for a controlled server trial. Before deployment:
+
+1. Back up the current `.env`, Redis persistence data, and output storage.
+2. Compare the existing `.env` with `.env.example`; repository updates do not
+   add new variables to an existing environment file.
+3. Retain the previous API, Worker, and cleanup images plus the matching source
+   revision for rollback. The default Compose file bind-mounts `api/`,
+   `worker/`, and `shared/`, so images alone do not restore application code.
+4. Restrict `/api/v1/health/deep` to operators.
+5. Validate the rendered configuration:
+   ```bash
+   cd docker && docker compose --profile mineru-gpu config --quiet
+   ```
+
+Build and start the trial:
+
+```bash
+cd docker
+sh build.sh --api --worker-gpu --cleanup --rebuild-base
+docker compose --profile redis --profile mineru-gpu up -d
+```
+
+Acceptance checks:
+
+1. `/health/live` and `/health/ready` return HTTP 200.
+2. `/health/deep` reports version `1.3.0`, available Redis/storage/Worker
+   components, a recent Worker heartbeat, and expected GPU/engine state.
+3. A first parse completes after model initialization; a second parse confirms
+   engine reuse.
+4. Cancelling an active task returns `cancel_requested`, the task reaches
+   `cancelled`, and the next task succeeds with a new engine generation.
+5. Representative text, scanned, formula-heavy, table-heavy, and long PDFs
+   complete without a stale active task or continuously growing queue.
+6. Observe the trial for at least one normal workload cycle and review Worker
+   restarts, engine restart counts, queue depth, task runtime, memory, and disk.
+
+Stop the rollout and restore the retained images, matching source revision, and
+`.env` backup if Worker restart loops, repeated engine crashes, incorrect
+output, persistent queue growth, or downstream API incompatibility is observed.
+Recreate the containers after restoring both images and source. Do not delete
+Redis or output data as part of rollback.
 
 ## Scaling and Optimization
 
@@ -231,10 +301,30 @@ services:
 
 ### Health Checks
 
-API provides health check endpoint:
+The API provides layered health endpoints:
 ```bash
-curl http://localhost:8000/api/v1/health
+curl http://localhost:8000/api/v1/health/live   # API process liveness
+curl http://localhost:8000/api/v1/health/ready  # Redis, storage, and Worker readiness
+curl http://localhost:8000/api/v1/health/deep   # Queue, active tasks, heartbeats, effective config
 ```
+
+`ready` returns HTTP 503 when a dependency is unavailable; use `live` only for
+container liveness. The compatible `/api/v1/health` endpoint remains available
+and also returns HTTP 503 while the service is not ready. In S3 mode, readiness
+performs read-only existence checks for both configured buckets; each dependency
+probe is bounded by `HEALTH_DEPENDENCY_TIMEOUT_SECONDS`.
+
+`live` and `ready` expose only aggregate diagnostics. The `deep` endpoint is
+intended for operators and includes runtime details such as storage paths,
+task identifiers and file names, Worker names, GPU model/UUID/driver data,
+utilization, memory, temperature, engine state, and overdue tasks. Restrict
+`deep` to a trusted network or protect it at the API gateway; do not expose it
+directly to the public Internet.
+
+Set `WORKER_WATCHDOG_TIMEOUT_SECONDS` above the longest supported task timeout.
+When that limit is exceeded, the Worker exits so Docker or another process
+supervisor can restart it. Set it to `0` only when an external watchdog provides
+equivalent recovery.
 
 ### Monitoring Metrics
 

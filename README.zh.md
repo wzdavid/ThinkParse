@@ -94,10 +94,15 @@
 
 5. **验证服务**:
    ```bash
-   curl http://localhost:8000/api/v1/health
+   curl http://localhost:8000/api/v1/health/live   # API 进程
+   curl http://localhost:8000/api/v1/health/ready  # Redis、存储、Worker
+   curl http://localhost:8000/api/v1/health/deep   # 队列、任务与有效配置
    ```
 
 完成！API 现在运行在 `http://localhost:8000`。
+
+`/health/deep` 会返回部署与任务详情，仅应通过可信网络访问，或由 API
+网关提供访问保护。
 
 > 💡 **提示**：
 > - 使用 `COMPOSE_PROFILES` 配置后，`sh build.sh` 和 `docker compose up -d` 都会自动识别
@@ -162,6 +167,7 @@ curl "http://localhost:8000/api/v1/tasks/{task_id}"
 ```bash
 # Redis 配置
 REDIS_URL=redis://redis:6379/0
+BROKER_VISIBILITY_TIMEOUT_SECONDS=9000
 
 # 存储类型：local 或 s3
 MINERU_STORAGE_TYPE=local
@@ -177,6 +183,16 @@ ENVIRONMENT=production
 
 # 文件上传限制
 MAX_FILE_SIZE=104857600  # 100MB
+
+# 单卡 GPU 稳定性与长文档处理
+WORKER_CONCURRENCY=1
+MINERU_ENABLE_PAGINATION=false
+MINERU_PROCESSING_WINDOW_SIZE=64
+MINERU_ENGINE_TIMEOUT_SECONDS=7200
+WORKER_WATCHDOG_TIMEOUT_SECONDS=7500
+WORKER_HEARTBEAT_SECONDS=15
+GPU_METRICS_INTERVAL_SECONDS=30
+HEALTH_DEPENDENCY_TIMEOUT_SECONDS=5
 ```
 
 ## 文档
@@ -224,7 +240,7 @@ pip install -r cleanup/requirements.txt
 
 本项目基于以下优秀的开源项目构建：
 
-- **[MinerU](https://github.com/opendatalab/MinerU)** - 提供核心文档解析引擎（v3.4.x）
+- **[MinerU](https://github.com/opendatalab/MinerU)** - 提供核心文档解析引擎（v3.4.5）
 - **[mineru-tianshu](https://github.com/magicyuan876/mineru-tianshu)** - API 架构的参考和灵感来源
 
 我们感谢这些项目的开发者和贡献者的宝贵工作。

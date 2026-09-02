@@ -387,11 +387,45 @@ docker compose exec mineru-worker-cpu env | grep WORKER_POOL
 
 3. 优化 Worker 配置:
    ```bash
-   WORKER_CONCURRENCY=4
+   # GPU：一卡一任务；CPU 才根据核数逐步提高
+   WORKER_CONCURRENCY=1
    WORKER_PREFETCH_MULTIPLIER=1
+   MINERU_ENABLE_PAGINATION=false
+   MINERU_PROCESSING_WINDOW_SIZE=64
    ```
 
 4. 检查 Redis 性能
+
+### GPU Worker 存活但任务不再推进
+
+**症状**: Worker 容器仍在运行，任务长时间保持 `processing`，取消请求后
+GPU 任务仍未停止。
+
+**原因**:
+- 旧部署直接在线程中运行 MinerU，活动线程无法被 Celery 强制终止。
+- 单卡并发大于 1 会让多个任务争用同一 GPU。
+- 旧版物理分页的 chunk/merge 调度可能占住 Worker 槽位。
+
+**处理**:
+1. 固定 `WORKER_CONCURRENCY=1` 和 `MINERU_ENABLE_PAGINATION=false`。
+2. 检查 GPU、Worker 日志和磁盘空间。
+3. 调用取消 API；ThinkParse 会终止隔离的 MinerU 引擎进程，并在下一任务
+   自动启动新引擎。
+4. 若 Worker 心跳本身消失，再重启 GPU Worker：
+   ```bash
+   docker restart mineru-worker-gpu
+   ```
+
+`MINERU_ENGINE_TIMEOUT_SECONDS` 会对超过墙钟时间上限的引擎调用自动执行
+相同的终止和恢复流程。Worker watchdog 会在退出前写入取消标记，使
+late-ack 重投任务直接终止，避免重复执行故障任务。超时应保持以下顺序：
+
+```text
+MINERU_ENGINE_TIMEOUT_SECONDS
+  < WORKER_WATCHDOG_TIMEOUT_SECONDS
+  < BROKER_VISIBILITY_TIMEOUT_SECONDS
+  < RESULT_EXPIRES
+```
 
 ### 队列堆积
 

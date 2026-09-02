@@ -1,11 +1,11 @@
-#!/bin/bash
+#!/bin/sh
 # Build script for MinerU Docker images
 # This script ensures base images are built before dependent images
 
 set -e
 
 # Get the directory where the script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # Get project root directory (parent of docker/)
@@ -21,8 +21,9 @@ BUILD_API=false
 BUILD_WORKER_GPU=false
 BUILD_WORKER_CPU=false
 BUILD_CLEANUP=false
+REBUILD_BASE=false
 
-while [[ $# -gt 0 ]]; do
+while [ "$#" -gt 0 ]; do
     case $1 in
         --all|-a)
             BUILD_ALL=true
@@ -44,9 +45,14 @@ while [[ $# -gt 0 ]]; do
             BUILD_CLEANUP=true
             shift
             ;;
+        --rebuild-base)
+            REBUILD_BASE=true
+            BUILD_WORKER_GPU=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--all|--api|--worker-gpu|--worker-cpu|--cleanup]"
+            echo "Usage: $0 [--all|--api|--worker-gpu|--worker-cpu|--cleanup|--rebuild-base]"
             exit 1
             ;;
     esac
@@ -104,8 +110,12 @@ fi
 
 if [ "$BUILD_ALL" = true ] || [ "$BUILD_WORKER_GPU" = true ]; then
     # Check if base image exists (only needed for GPU worker)
-    if ! docker image inspect mineru-vllm:latest > /dev/null 2>&1; then
-        echo "Base image 'mineru-vllm:latest' not found. Building it first..."
+    if [ "$REBUILD_BASE" = true ] || ! docker image inspect mineru-vllm:latest > /dev/null 2>&1; then
+        if [ "$REBUILD_BASE" = true ]; then
+            echo "Forcing rebuild of base image 'mineru-vllm:latest'..."
+        else
+            echo "Base image 'mineru-vllm:latest' not found. Building it first..."
+        fi
         echo ""
         echo "Building base image from Dockerfile.base..."
         cd "$PROJECT_ROOT"

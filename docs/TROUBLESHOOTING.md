@@ -385,11 +385,47 @@ Should display: `WORKER_POOL=threads`
 
 3. Optimize Worker configuration:
    ```bash
-   WORKER_CONCURRENCY=4
+   # GPU: one active task per card; only raise this gradually for CPU workers
+   WORKER_CONCURRENCY=1
    WORKER_PREFETCH_MULTIPLIER=1
+   MINERU_ENABLE_PAGINATION=false
+   MINERU_PROCESSING_WINDOW_SIZE=64
    ```
 
 4. Check Redis performance
+
+### GPU Worker Is Alive but Tasks Stop Progressing
+
+**Symptoms**: The Worker container is running, a task remains `processing` for
+an unusually long time, and a cancellation request does not stop GPU work.
+
+**Causes**:
+- Older deployments ran MinerU directly in a Celery thread, which could not
+  be force-terminated.
+- Concurrency above one makes tasks compete for the same GPU.
+- Legacy physical PDF splitting can occupy Worker slots during chunk/merge scheduling.
+
+**Actions**:
+1. Set `WORKER_CONCURRENCY=1` and `MINERU_ENABLE_PAGINATION=false`.
+2. Check GPU activity, Worker logs, and free disk space.
+3. Request cancellation through the API. ThinkParse terminates the isolated
+   MinerU engine and starts a fresh engine for the next task.
+4. If the Worker heartbeat itself is absent, restart the GPU Worker:
+   ```bash
+   docker restart mineru-worker-gpu
+   ```
+
+`MINERU_ENGINE_TIMEOUT_SECONDS` enforces the same recovery path automatically
+for an engine call that exceeds its wall-clock limit. The Worker watchdog
+persists a cancellation marker before exiting so a late-ack redelivery
+terminates instead of repeating the failing task. Keep timeout ordering as:
+
+```text
+MINERU_ENGINE_TIMEOUT_SECONDS
+  < WORKER_WATCHDOG_TIMEOUT_SECONDS
+  < BROKER_VISIBILITY_TIMEOUT_SECONDS
+  < RESULT_EXPIRES
+```
 
 ### Queue Backlog
 

@@ -94,10 +94,15 @@ Repository: **https://github.com/wzdavid/ThinkParse**
 
 5. **Verify services**:
    ```bash
-   curl http://localhost:8000/api/v1/health
+   curl http://localhost:8000/api/v1/health/live   # API process
+   curl http://localhost:8000/api/v1/health/ready  # Redis, storage, Worker
+   curl http://localhost:8000/api/v1/health/deep   # Queue, tasks, effective config
    ```
 
 That's it! The API is now running at `http://localhost:8000`.
+
+`/health/deep` includes deployment and task details for operations. Restrict it
+to a trusted network or protect it at the API gateway.
 
 > 💡 **Tips**:
 > - After configuring `COMPOSE_PROFILES`, both `sh build.sh` and `docker compose up -d` will automatically recognize it
@@ -162,6 +167,7 @@ The most important configuration options (see `.env.example` for all options):
 ```bash
 # Redis Configuration
 REDIS_URL=redis://redis:6379/0
+BROKER_VISIBILITY_TIMEOUT_SECONDS=9000
 
 # Storage Type: local or s3
 MINERU_STORAGE_TYPE=local
@@ -177,6 +183,16 @@ ENVIRONMENT=production
 
 # File Upload Limits
 MAX_FILE_SIZE=104857600  # 100MB
+
+# Single-GPU stability and long-document processing
+WORKER_CONCURRENCY=1
+MINERU_ENABLE_PAGINATION=false
+MINERU_PROCESSING_WINDOW_SIZE=64
+MINERU_ENGINE_TIMEOUT_SECONDS=7200
+WORKER_WATCHDOG_TIMEOUT_SECONDS=7500
+WORKER_HEARTBEAT_SECONDS=15
+GPU_METRICS_INTERVAL_SECONDS=30
+HEALTH_DEPENDENCY_TIMEOUT_SECONDS=5
 ```
 
 ## Documentation
@@ -224,7 +240,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 This project is built on top of the following excellent open-source projects:
 
-- **[MinerU](https://github.com/opendatalab/MinerU)** - The core document parsing engine that powers this service (v3.4.x)
+- **[MinerU](https://github.com/opendatalab/MinerU)** - The core document parsing engine that powers this service (v3.4.5)
 - **[mineru-tianshu](https://github.com/magicyuan876/mineru-tianshu)** - Inspiration and reference for the API architecture
 
 We are grateful to the developers and contributors of these projects for their valuable work.

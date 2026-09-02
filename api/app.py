@@ -6,6 +6,7 @@ Handles task submission and status queries only.
 from dotenv import load_dotenv
 load_dotenv()
 
+import asyncio
 import os
 import sys
 import json
@@ -32,14 +33,23 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from shared import celeryconfig
+from shared.observability import (
+    collect_redis_snapshot,
+    collect_storage_snapshot,
+    collect_worker_snapshot,
+    request_task_cancellation,
+    utc_now_iso,
+)
 from shared.storage import get_storage
 from shared.task_result import apply_status_payload, hydrate_celery_result
+
+APP_VERSION = "1.3.0"
 
 # Create FastAPI application
 app = FastAPI(
     title="ThinkParse API Server",
     description="Document parsing service — handles task submission and querying only",
-    version="1.2.0"
+    version=APP_VERSION,
 )
 
 # Enable CORS
@@ -69,6 +79,118 @@ celery_app.config_from_object(celeryconfig)
 # Ensure directories exist
 os.makedirs(celeryconfig.TEMP_DIR, exist_ok=True)
 Path(celeryconfig.OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+
+
+async def collect_readiness() -> tuple[bool, dict[str, Any]]:
+    """Collect dependency readiness without blocking the API event loop."""
+    timeout = float(os.getenv("HEALTH_DEPENDENCY_TIMEOUT_SECONDS", "5"))
+
+    async def run_probe(function: Any, *args: Any) -> Any:
+        return await asyncio.wait_for(
+            asyncio.to_thread(function, *args),
+            timeout=timeout,
+        )
+
+    redis_result, storage_result, worker_result = await asyncio.gather(
+        run_probe(collect_redis_snapshot),
+        run_probe(collect_storage_snapshot),
+        run_probe(collect_worker_snapshot, celery_app),
+        return_exceptions=True,
+    )
+
+    def normalize(result: Any) -> dict[str, Any]:
+        if isinstance(result, Exception):
+            error = (
+                f"dependency probe timed out after {timeout:g}s"
+                if isinstance(result, TimeoutError)
+                else str(result)
+            )
+            return {"available": False, "error": error}
+        return result
+
+    components = {
+        "redis": normalize(redis_result),
+        "storage": normalize(storage_result),
+        "workers": normalize(worker_result),
+    }
+    ready = all(component.get("available") is True for component in components.values())
+    return ready, components
+
+
+def summarize_health_components(components: dict[str, Any]) -> dict[str, Any]:
+    """Build a public health payload without paths, task IDs, or hardware identity."""
+    redis = components["redis"]
+    storage = components["storage"]
+    workers = components["workers"]
+    storage_paths = storage.get("paths", {}).values()
+    active_tasks = workers.get("active_tasks", [])
+    heartbeats = redis.get("worker_heartbeats", [])
+
+    gpu_devices = [
+        device
+        for heartbeat in heartbeats
+        for device in heartbeat.get("gpu", {}).get("devices", [])
+    ]
+    engines = [
+        heartbeat["engine"]
+        for heartbeat in heartbeats
+        if isinstance(heartbeat.get("engine"), dict)
+    ]
+
+    return {
+        "redis": {
+            "available": redis.get("available", False),
+            "latency_ms": redis.get("latency_ms"),
+            "queue_depth": redis.get("queue_depth"),
+            "worker_heartbeat_count": len(heartbeats),
+        },
+        "storage": {
+            "available": storage.get("available", False),
+            "type": storage.get("type"),
+            "max_used_percent": max(
+                (path.get("used_percent", 0) for path in storage_paths),
+                default=None,
+            ),
+        },
+        "workers": {
+            "available": workers.get("available", False),
+            "count": workers.get("count", 0),
+            "active_count": workers.get("active_count", len(active_tasks)),
+            "reserved_count": workers.get("reserved_count", 0),
+            "max_active_runtime_seconds": max(
+                (
+                    task["runtime_seconds"]
+                    for task in active_tasks
+                    if isinstance(task.get("runtime_seconds"), (int, float))
+                ),
+                default=None,
+            ),
+        },
+        "gpu": {
+            "available": bool(gpu_devices),
+            "device_count": len(gpu_devices),
+            "max_utilization_percent": max(
+                (device["utilization_percent"] for device in gpu_devices),
+                default=None,
+            ),
+            "memory_used_mb": sum(
+                device["memory_used_mb"] for device in gpu_devices
+            ),
+            "memory_total_mb": sum(
+                device["memory_total_mb"] for device in gpu_devices
+            ),
+            "max_temperature_c": max(
+                (device["temperature_c"] for device in gpu_devices),
+                default=None,
+            ),
+        },
+        "engines": {
+            "alive_count": sum(bool(engine.get("alive")) for engine in engines),
+            "restart_count": sum(
+                int(engine.get("restart_count", 0)) for engine in engines
+            ),
+        },
+    }
 
 
 def sanitize_filename(filename: str) -> str:
@@ -113,7 +235,7 @@ async def root():
     """Root endpoint with service metadata."""
     return {
         "service": "ThinkParse API Server",
-        "version": "1.2.0",
+        "version": APP_VERSION,
         "description": "Document parsing service",
         "endpoints": {
             "submit": "/api/v1/tasks/submit",
@@ -122,6 +244,9 @@ async def root():
             "stats": "/api/v1/queue/stats",
             "tasks": "/api/v1/queue/tasks",
             "health": "/api/v1/health",
+            "liveness": "/api/v1/health/live",
+            "readiness": "/api/v1/health/ready",
+            "diagnostics": "/api/v1/health/deep",
             "docs": "/docs"
         }
     }
@@ -136,9 +261,16 @@ async def submit_task(
     formula_enable: bool = Form(True, description="Enable formula recognition"),
     table_enable: bool = Form(True, description="Enable table recognition"),
     priority: int = Form(0, description="Priority, higher number means higher priority"),
-    enable_pagination: Optional[bool] = Form(None, description="Enable pagination for large PDFs (auto-detect if None)"),
+    enable_pagination: Optional[bool] = Form(
+        None,
+        deprecated=True,
+        description=(
+            "Legacy ThinkParse PDF splitting compatibility switch. "
+            "Leave unset/false to use MinerU's built-in processing windows."
+        ),
+    ),
 ):
-    """Submit MinerU parsing task with automatic pagination for large PDFs."""
+    """Submit a parsing task; MinerU handles long PDFs with bounded windows."""
     try:
         storage = get_storage()
         
@@ -165,14 +297,19 @@ async def submit_task(
             file_data.write(chunk)
         
         # Save to storage (temporary file)
-        temp_file_path = storage.save_temp_file(file_key, file_data.getvalue())
+        temp_file_path = await asyncio.to_thread(
+            storage.save_temp_file,
+            file_key,
+            file_data.getvalue(),
+        )
         
         # Submit task - worker will automatically determine if splitting is needed
         # Pass enable_pagination in options so worker can respect user's explicit choice
-        task_result = celery_app.send_task(
-            'mineru.parse_document',  # Unified task - worker handles all logic (splitting, parsing, merging)
+        task_result = await asyncio.to_thread(
+            celery_app.send_task,
+            'mineru.parse_document',
             args=[
-                temp_file_path,  # Storage path (S3 key or local path)
+                temp_file_path,
                 file.filename,
                 backend,
                 {
@@ -180,9 +317,9 @@ async def submit_task(
                     'method': method,
                     'formula_enable': formula_enable,
                     'table_enable': table_enable,
-                    'enable_pagination': enable_pagination,  # Pass user's choice to worker
+                    'enable_pagination': enable_pagination,
                 },
-                False,  # upload_images
+                False,
             ],
             queue=celeryconfig.MINERU_QUEUE,
             exchange=celeryconfig.MINERU_EXCHANGE,
@@ -204,6 +341,8 @@ async def submit_task(
             'priority': priority,
         }
 
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error(f"❌ Failed to submit task: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -290,15 +429,16 @@ async def parse_pdf(
         completed_results = {}
         for i, (pdf_name, task_result) in enumerate(zip(pdf_file_names, task_results)):
             try:
-                # Wait for task completion (synchronous wait)
-                result = task_result.get(timeout=7200)  # 2 hours timeout
+                # Celery's blocking wait must not block the FastAPI event loop.
+                result = await asyncio.to_thread(task_result.get, timeout=7200)
                 # Redis holds slim metadata; rebuild bodies from storage for this sync API.
                 if isinstance(result, dict):
                     result = hydrate_celery_result(result)
                 
-                if result.get('status') == 'failed':
+                if result.get('status') in {'failed', 'cancelled'}:
                     completed_results[pdf_name] = {
-                        'error': result.get('error_message', 'Unknown error')
+                        'error': result.get('error_message', 'Unknown error'),
+                        'status': result.get('status'),
                     }
                     continue
 
@@ -530,71 +670,73 @@ async def parse_pdf(
         )
 
 
-@app.get("/api/v1/tasks/{task_id}")
-async def get_task_status(task_id: str, upload_images: bool = Query(False, description="Whether to upload images to MinIO")):
-    """Query task status and result."""
-    try:
-        result = AsyncResult(task_id, app=celery_app)
+def build_task_status_response(task_id: str) -> dict[str, Any]:
+    """Build a task response synchronously for execution in a worker thread."""
+    result = AsyncResult(task_id, app=celery_app)
+    result_status = result.status
+    status_mapping = {
+        'PENDING': 'pending',
+        'STARTED': 'processing',
+        'SUCCESS': 'completed',
+        'FAILURE': 'failed',
+        'RETRY': 'processing',
+        'REVOKED': 'cancelled',
+    }
+    api_status = status_mapping.get(result_status, result_status.lower())
+    response: dict[str, Any] = {
+        'success': True,
+        'task': {
+            'task_id': task_id,
+            'status': api_status,
+            'created_at': None,
+            'started_at': None,
+            'completed_at': None,
+            'file_name': None,
+            'backend': None,
+            'result_path': None,
+            'error_message': None,
+            'retry_count': getattr(result, 'retries', 0),
+        },
+        'timestamp': utc_now_iso(),
+    }
 
-        status_mapping = {
-            'PENDING': 'pending',
-            'STARTED': 'processing',
-            'SUCCESS': 'completed',
-            'FAILURE': 'failed',
-            'RETRY': 'processing',
-            'REVOKED': 'cancelled'
-        }
-
-        api_status = status_mapping.get(result.status, result.status.lower())
-
-        response: Dict[str, Any] = {
-            'success': True,
-            'task': {
-                'task_id': task_id,
-                'status': api_status,
-                'created_at': None,
-                'started_at': None,
-                'completed_at': None,
-                'file_name': None,
-                'backend': None,
-                'result_path': None,
-                'error_message': None,
-                'retry_count': getattr(result, 'retries', 0)
-            },
-            'timestamp': datetime.now().isoformat()
-        }
-
-        if result.successful():
-            task_result = result.result or {}
-            response['task'].update({
-                'result_path': task_result.get('result_path'),
-                'file_name': task_result.get('file_name'),
-                'backend': task_result.get('backend'),
-                'completed_at': task_result.get('completed_at')
-            })
-            # Rebuild markdown/images/json from storage (Redis holds slim metadata only).
+    if result.successful():
+        task_result = result.result or {}
+        semantic_status = task_result.get('status', 'completed')
+        response['task'].update({
+            'status': semantic_status,
+            'result_path': task_result.get('result_path'),
+            'file_name': task_result.get('file_name'),
+            'backend': task_result.get('backend'),
+            'completed_at': task_result.get('completed_at'),
+            'error_message': task_result.get('error_message'),
+        })
+        if semantic_status == 'completed':
             apply_status_payload(response, task_result)
+    elif result.failed():
+        error_info = result.result if result.result else result.traceback
+        response['task'].update({
+            'error_message': str(error_info) if error_info else 'Unknown error',
+            'completed_at': utc_now_iso(),
+        })
+    elif api_status == 'processing':
+        progress_info = result.info if isinstance(result.info, dict) else {}
+        response['task'].update({
+            'file_name': progress_info.get('file_name'),
+            'backend': progress_info.get('backend'),
+            'started_at': progress_info.get('started_at'),
+        })
+    return response
 
-        elif result.failed():
-            error_info = result.result if result.result else result.traceback
-            response['task'].update({
-                'error_message': str(error_info) if error_info else 'Unknown error',
-                'completed_at': datetime.now().isoformat()
-            })
 
-        elif api_status == 'processing':
-            if hasattr(result, 'info') and result.info and isinstance(result.info, dict):
-                progress_info = result.info
-                response['task'].update({
-                    'file_name': progress_info.get('file_name'),
-                    'backend': progress_info.get('backend'),
-                    'started_at': progress_info.get('started_at')
-                })
-
-        if response.get('success'):
-            return response
-        raise HTTPException(status_code=404, detail=response.get('error', 'Task not found'))
-
+@app.get("/api/v1/tasks/{task_id}")
+async def get_task_status(
+    task_id: str,
+    upload_images: bool = Query(False, description="Whether to upload images to MinIO"),
+):
+    """Query task status and result without blocking the API event loop."""
+    try:
+        return await asyncio.to_thread(build_task_status_response, task_id)
     except Exception as exc:
         logger.error(f"❌ Failed to get task status for {task_id}: {exc}")
         raise HTTPException(status_code=500, detail=f"Failed to query task: {str(exc)}")
@@ -602,12 +744,21 @@ async def get_task_status(task_id: str, upload_images: bool = Query(False, descr
 
 @app.delete("/api/v1/tasks/{task_id}")
 async def cancel_task(task_id: str):
-    """Cancel an active task."""
+    """Request cancellation.
+
+    Pending tasks are revoked, while an active isolated MinerU engine observes
+    the Redis cancellation marker and terminates.
+    """
     try:
-        celery_app.control.revoke(task_id, terminate=True)
+        await asyncio.to_thread(request_task_cancellation, task_id)
+        await asyncio.to_thread(celery_app.control.revoke, task_id, terminate=False)
         return {
             'success': True,
-            'message': f'Task {task_id} has been cancelled',
+            'status': 'cancel_requested',
+            'message': (
+                f'Cancellation requested for task {task_id}. '
+                'An active isolated MinerU engine will be terminated shortly.'
+            ),
             'task_id': task_id,
             'timestamp': datetime.now().isoformat()
         }
@@ -620,31 +771,29 @@ async def cancel_task(task_id: str):
 async def get_queue_stats():
     """Retrieve queue statistics."""
     try:
-        inspect = celery_app.control.inspect()
-        active_tasks = inspect.active() or {}
-        scheduled_tasks = inspect.scheduled() or {}
-        reserved_tasks = inspect.reserved() or {}
-
-        active_count = sum(len(tasks) for tasks in active_tasks.values())
-        pending_count = sum(len(tasks) for tasks in scheduled_tasks.values())
-        reserved_count = sum(len(tasks) for tasks in reserved_tasks.values())
+        redis_snapshot, worker_snapshot = await asyncio.gather(
+            asyncio.to_thread(collect_redis_snapshot),
+            asyncio.to_thread(collect_worker_snapshot, celery_app),
+        )
 
         return {
             'success': True,
             'stats': {
-                'pending': pending_count + reserved_count,
-                'processing': active_count,
+                'pending': redis_snapshot['queue_depth'] + worker_snapshot['reserved_count'],
+                'queued': redis_snapshot['queue_depth'],
+                'reserved': worker_snapshot['reserved_count'],
+                'processing': worker_snapshot['active_count'],
                 'completed': 0,
                 'failed': 0,
-                'total_active': active_count,
-                'total_scheduled': pending_count
+                'total_active': worker_snapshot['active_count'],
+                'total_scheduled': redis_snapshot['queue_depth'],
             },
             'workers': {
-                'active_workers': len(active_tasks),
-                'total_workers': len(inspect.stats() or {})
+                'active_workers': worker_snapshot['count'],
+                'total_workers': worker_snapshot['count'],
             },
             'timestamp': datetime.now().isoformat(),
-            'note': 'Completed/failed counts not available in Celery. Only active tasks are tracked.'
+            'note': 'Queued count is read from the Redis broker; historical totals are unavailable.'
         }
     except Exception as exc:
         logger.error(f"❌ Failed to get queue stats: {exc}")
@@ -656,41 +805,37 @@ async def list_tasks(
     status: Optional[str] = Query(None, description="Filter status: pending/processing/completed/failed"),
     limit: int = Query(100, description="Return count limit", le=1000)
 ):
-    """List active and scheduled tasks."""
+    """List active and Worker-reserved tasks."""
     try:
-        inspect = celery_app.control.inspect()
+        worker_snapshot = await asyncio.to_thread(collect_worker_snapshot, celery_app)
         tasks = []
 
         if not status or status == 'processing':
-            active_tasks = inspect.active() or {}
-            for worker_name, worker_tasks in active_tasks.items():
-                for task in worker_tasks:
-                    tasks.append({
-                        'task_id': task['id'],
-                        'status': 'processing',
-                        'worker_id': worker_name,
-                        'file_name': task.get('kwargs', {}).get('file_name'),
-                        'backend': task.get('kwargs', {}).get('backend'),
-                        'started_at': task.get('time_start'),
-                        'created_at': None,
-                        'priority': 0
-                    })
+            for task in worker_snapshot['active_tasks']:
+                tasks.append({
+                    'task_id': task['task_id'],
+                    'status': 'processing',
+                    'worker_id': task['worker'],
+                    'file_name': task['file_name'],
+                    'backend': task['backend'],
+                    'started_at': task['started_at'],
+                    'runtime_seconds': task['runtime_seconds'],
+                    'created_at': None,
+                    'priority': 0,
+                })
 
         if not status or status == 'pending':
-            scheduled_tasks = inspect.scheduled() or {}
-            for _, worker_tasks in scheduled_tasks.items():
-                for task in worker_tasks:
-                    tasks.append({
-                        'task_id': task['request']['id'],
-                        'status': 'pending',
-                        'worker_id': None,
-                        'file_name': task['request'].get('kwargs', {}).get('file_name'),
-                        'backend': task['request'].get('kwargs', {}).get('backend'),
-                        'created_at': None,
-                        'started_at': None,
-                        'priority': task.get('priority', 0),
-                        'eta': task.get('eta')
-                    })
+            for task in worker_snapshot['reserved_tasks']:
+                tasks.append({
+                    'task_id': task['task_id'],
+                    'status': 'pending',
+                    'worker_id': task['worker'],
+                    'file_name': task['file_name'],
+                    'backend': task['backend'],
+                    'created_at': None,
+                    'started_at': None,
+                    'priority': 0,
+                })
 
         tasks = tasks[:limit]
 
@@ -701,40 +846,102 @@ async def list_tasks(
             'limit': limit,
             'status_filter': status,
             'timestamp': datetime.now().isoformat(),
-            'note': 'Only active and scheduled tasks are shown. Historical tasks are not stored by default.'
+            'note': (
+                'Only active and Worker-reserved task IDs are shown. '
+                'Use queue/stats for the Redis broker backlog.'
+            )
         }
     except Exception as exc:
         logger.error(f"❌ Failed to list tasks: {exc}")
         raise HTTPException(status_code=500, detail=f"Failed to list tasks: {str(exc)}")
 
 
+@app.get("/api/v1/health/live")
+async def liveness_check():
+    """Process liveness only; never checks external dependencies."""
+    return {
+        'success': True,
+        'status': 'alive',
+        'service': 'ThinkParse API Server',
+        'version': APP_VERSION,
+        'timestamp': utc_now_iso(),
+    }
+
+
+@app.get("/api/v1/health/ready")
+async def readiness_check():
+    """Dependency readiness for load balancers and deployment checks."""
+    ready, components = await collect_readiness()
+    payload = {
+        'success': ready,
+        'status': 'ready' if ready else 'not_ready',
+        'service': 'ThinkParse API Server',
+        'version': APP_VERSION,
+        'components': summarize_health_components(components),
+        'timestamp': utc_now_iso(),
+    }
+    return JSONResponse(status_code=200 if ready else 503, content=payload)
+
+
+@app.get("/api/v1/health/deep")
+async def deep_health_check():
+    """Detailed runtime state; deployments should restrict access to this endpoint."""
+    ready, components = await collect_readiness()
+    worker_snapshot = components['workers']
+    active_tasks = worker_snapshot.get('active_tasks', [])
+    worker_runtime = components['redis'].get('worker_heartbeats', [])
+    task_limit = celeryconfig.task_time_limit
+    overdue_tasks = [
+        task for task in active_tasks
+        if isinstance(task.get('runtime_seconds'), (int, float))
+        and task['runtime_seconds'] > task_limit
+    ]
+    status = 'healthy' if ready and not overdue_tasks else ('degraded' if ready else 'unhealthy')
+    payload = {
+        'success': ready and not overdue_tasks,
+        'status': status,
+        'service': 'ThinkParse API Server',
+        'version': APP_VERSION,
+        'components': components,
+        'tasks': {
+            'active': active_tasks,
+            'overdue': overdue_tasks,
+            'hard_limit_seconds': task_limit,
+        },
+        'effective_config': {
+            'queue': celeryconfig.MINERU_QUEUE,
+            'legacy_pdf_splitting': (
+                os.getenv('MINERU_ENABLE_PAGINATION', 'false').lower() == 'true'
+            ),
+            'processing_window_size': int(
+                os.getenv('MINERU_PROCESSING_WINDOW_SIZE', '64')
+            ),
+            'storage_type': os.getenv('MINERU_STORAGE_TYPE', 'local'),
+            'worker_runtime': worker_runtime,
+        },
+        'timestamp': utc_now_iso(),
+    }
+    return JSONResponse(status_code=200 if ready else 503, content=payload)
+
+
 @app.get("/api/v1/health")
 async def health_check():
-    """Health check endpoint."""
-    try:
-        inspect = celery_app.control.inspect()
-        stats = inspect.stats()
-        active_workers = len(stats) if stats else 0
-
-        return {
-            'success': True,
-            'status': 'healthy',
-            'service': 'ThinkParse API Server',
-            'version': '1.2.0',
-            'workers': {
-                'active': active_workers,
-                'available': active_workers > 0
-            },
-            'timestamp': datetime.now().isoformat()
-        }
-    except Exception as exc:
-        logger.error(f"❌ Health check failed: {exc}")
-        return {
-            'success': False,
-            'status': 'unhealthy',
-            'error': str(exc),
-            'timestamp': datetime.now().isoformat()
-        }
+    """Backward-compatible aggregate health endpoint."""
+    ready, components = await collect_readiness()
+    worker_count = components['workers'].get('count', 0)
+    payload = {
+        'success': ready,
+        'status': 'healthy' if ready else 'unhealthy',
+        'service': 'ThinkParse API Server',
+        'version': APP_VERSION,
+        'workers': {
+            'active': worker_count,
+            'available': components['workers'].get('available', False),
+        },
+        'components': summarize_health_components(components),
+        'timestamp': utc_now_iso(),
+    }
+    return JSONResponse(status_code=200 if ready else 503, content=payload)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ This document details all available configuration options.
 |----------|-------------|---------|---------|
 | `API_HOST` | API listen address | `0.0.0.0` | `0.0.0.0` |
 | `API_PORT` | API listen port | `8000` | `8000` |
+| `HEALTH_DEPENDENCY_TIMEOUT_SECONDS` | Timeout for each readiness dependency probe | `5` | `5` |
 | `CORS_ALLOWED_ORIGINS` | Allowed CORS origins (comma-separated) | Development default | `https://app.example.com` |
 | `ENVIRONMENT` | Runtime environment | `development` | `production` |
 | `MAX_FILE_SIZE` | Maximum file size (bytes) | `104857600` (100MB) | `209715200` |
@@ -50,9 +51,11 @@ This document details all available configuration options.
 | `MINERU_QUEUE` | Task queue name | `mineru-tasks` | `mineru-tasks` |
 | `MINERU_EXCHANGE` | Exchange name | `mineru` | `mineru` |
 | `MINERU_ROUTING_KEY` | Routing key | `mineru.tasks` | `mineru.tasks` |
-| `RESULT_EXPIRES` | Result expiration time (seconds) | `86400` (1 day) | `172800` |
+| `BROKER_VISIBILITY_TIMEOUT_SECONDS` | Redis delivery visibility; keep above the Worker watchdog timeout | `9000` | `9000` |
+| `RESULT_EXPIRES` | Result/cancellation retention; keep above broker visibility timeout | `86400` (1 day) | `172800` |
 | `TASK_TIME_LIMIT` | Task hard timeout (seconds) | `7200` (2 hours) | `10800` |
 | `TASK_SOFT_TIME_LIMIT` | Task soft timeout (seconds) | `6000` (100 minutes) | `9000` |
+| `MINERU_ENGINE_TIMEOUT_SECONDS` | Force-termination timeout for the isolated MinerU process | `7200` (2 hours) | `7200` |
 | `TASK_MAX_RETRIES` | Maximum retry count | `0` | `3` |
 | `TASK_RETRY_DELAY` | Retry delay (seconds) | `300` | `600` |
 
@@ -61,11 +64,14 @@ This document details all available configuration options.
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `WORKER_NAME` | Worker name | `mineru-worker` | `mineru-worker-1` |
-| `WORKER_CONCURRENCY` | Worker concurrency | `2` | `4` |
+| `WORKER_CONCURRENCY` | Worker concurrency; keep one active task per GPU | `1` | `1` |
 | `WORKER_POOL` | Worker pool type | `threads` | `threads` |
 | `WORKER_MAX_TASKS_PER_CHILD` | Max tasks per child process | `100` | `50` |
 | `WORKER_PREFETCH_MULTIPLIER` | Prefetch multiplier | `1` | `1` |
 | `WORKER_MAX_MEMORY_PER_CHILD` | Max memory per child (KB) | `2000000` (2GB) | `4000000` |
+| `WORKER_HEARTBEAT_SECONDS` | Interval for publishing Worker runtime state to Redis | `15` | `15` |
+| `GPU_METRICS_INTERVAL_SECONDS` | Interval for GPU identity and utilization sampling in Worker heartbeats | `30` | `30` |
+| `WORKER_WATCHDOG_TIMEOUT_SECONDS` | Exit an overdue Worker task so the process supervisor can restart it; `0` disables | `7500` | `7500` |
 
 ### MinerU Configuration
 
@@ -78,8 +84,17 @@ This document details all available configuration options.
 | `MINERU_LANG` | Language | `ch` | `ch`, `en` |
 | `MINERU_EMBED_IMAGES_IN_MD` | Embed images in Markdown | `true` | `true` |
 | `MINERU_RETURN_IMAGES_BASE64` | Return Base64 images | `true` | `true` |
+| `MINERU_PROCESSING_WINDOW_SIZE` | MinerU built-in long-document window size in pages | `64` | `64`, `96` |
+| `MINERU_ENABLE_PAGINATION` | Enable legacy ThinkParse physical PDF splitting (compatibility escape hatch) | `false` | `false` |
+| `MINERU_PAGINATION_THRESHOLD` | Page threshold for legacy splitting | `100` | `100` |
+| `MINERU_PAGE_CHUNK_SIZE` | Pages per legacy split chunk | `50` | `50` |
 | `MINERU_MODEL_SOURCE` | Model source | `modelscope` | `modelscope`, `huggingface`, `local` |
 | `MINERU_MODEL_TYPE` | Model type | `pipeline` | `pipeline`, `vlm`, `all` |
+
+Keep `MINERU_ENABLE_PAGINATION=false` in production. MinerU 3.x processes the
+complete PDF with bounded processing windows, preserving cross-page context
+and avoiding chunk/merge scheduling stalls. Use legacy splitting only as an
+explicit compatibility fallback.
 
 ### MinIO Configuration (Optional)
 
@@ -122,7 +137,12 @@ OUTPUT_DIR=/data/mineru/output
 ENVIRONMENT=production
 CORS_ALLOWED_ORIGINS=https://app.example.com
 MAX_FILE_SIZE=104857600
-WORKER_CONCURRENCY=4
+WORKER_CONCURRENCY=1
+MINERU_ENABLE_PAGINATION=false
+MINERU_PROCESSING_WINDOW_SIZE=64
+MINERU_ENGINE_TIMEOUT_SECONDS=7200
+WORKER_WATCHDOG_TIMEOUT_SECONDS=7500
+BROKER_VISIBILITY_TIMEOUT_SECONDS=9000
 ```
 
 ### Production Environment (S3 Storage)
@@ -140,7 +160,12 @@ MINERU_S3_SECURE=true
 ENVIRONMENT=production
 CORS_ALLOWED_ORIGINS=https://app.example.com
 MAX_FILE_SIZE=104857600
-WORKER_CONCURRENCY=4
+WORKER_CONCURRENCY=1
+MINERU_ENABLE_PAGINATION=false
+MINERU_PROCESSING_WINDOW_SIZE=64
+MINERU_ENGINE_TIMEOUT_SECONDS=7200
+WORKER_WATCHDOG_TIMEOUT_SECONDS=7500
+BROKER_VISIBILITY_TIMEOUT_SECONDS=9000
 ```
 
 ## Configuration Validation
@@ -151,8 +176,9 @@ Use the following commands to validate configuration:
 # Check environment variables
 cd docker && docker compose exec mineru-api env | grep MINERU
 
-# Check API configuration
-curl http://localhost:8000/api/v1/health
+# Check API readiness and detailed runtime configuration
+curl http://localhost:8000/api/v1/health/ready
+curl http://localhost:8000/api/v1/health/deep
 
 # Check Worker status
 cd docker && docker compose exec mineru-worker-cpu env | grep WORKER

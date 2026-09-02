@@ -86,6 +86,8 @@ services:
       # If using external Redis with password: redis://:password@host.docker.internal:6379/0
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
+      # One active MinerU parse per GPU is the safe production default.
+      - WORKER_CONCURRENCY=${GPU_WORKER_CONCURRENCY:-1}
     volumes:
       # Note: When using S3 storage (MINERU_STORAGE_TYPE=s3), the following volumes will not be used
       # but kept for backward compatibility

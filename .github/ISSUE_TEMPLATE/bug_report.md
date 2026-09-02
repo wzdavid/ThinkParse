@@ -25,7 +25,7 @@ A clear and concise description of what actually happened.
 - **OS**: [e.g., Ubuntu 22.04, macOS 14.0, Windows 11]
 - **Python Version**: [e.g., 3.10, 3.11, 3.12]
 - **Docker Version**: [e.g., 24.0.0] (if using Docker)
-- **ThinkParse Version**: [e.g., 1.2.0]
+- **ThinkParse Version**: [e.g., 1.3.0]
 
 ## Configuration
 ```bash

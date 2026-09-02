@@ -12,7 +12,6 @@ import tempfile
 from pathlib import Path
 from typing import Optional, BinaryIO, Union, List
 from contextlib import contextmanager
-from io import BytesIO
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -89,7 +88,7 @@ class StorageAdapter:
         try:
             if not self._fs.exists(bucket_name):
                 self._fs.mkdir(bucket_name)
-        except Exception as e:
+        except Exception:
             # Ignore if bucket already exists or other errors
             pass
     
@@ -214,6 +213,26 @@ class StorageAdapter:
             return self._fs.exists(path)
         else:
             return Path(path).exists()
+
+    def health_check(self) -> dict:
+        """Perform a read-only backend availability check."""
+        if self.storage_type == 's3':
+            buckets = {
+                bucket: bool(self._fs.exists(bucket))
+                for bucket in (S3_BUCKET_TEMP, S3_BUCKET_OUTPUT)
+            }
+            return {
+                'available': all(buckets.values()),
+                'type': self.storage_type,
+                'buckets': buckets,
+            }
+        return {
+            'available': all(
+                Path(path).exists() and os.access(path, os.W_OK)
+                for path in (TEMP_DIR, OUTPUT_DIR)
+            ),
+            'type': self.storage_type,
+        }
     
     def delete_file(self, path: str) -> bool:
         """

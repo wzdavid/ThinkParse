@@ -11,6 +11,12 @@ load_dotenv()
 # Redis configuration
 broker_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 result_backend = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+broker_visibility_timeout = int(
+    os.getenv('BROKER_VISIBILITY_TIMEOUT_SECONDS', 9000)
+)
+broker_transport_options = {
+    'visibility_timeout': broker_visibility_timeout,
+}
 
 # Serialization
 task_serializer = 'json'
@@ -27,9 +33,31 @@ task_track_started = True
 # Execution settings
 task_time_limit = int(os.getenv('TASK_TIME_LIMIT', 7200))          # 2 hours hard timeout
 task_soft_time_limit = int(os.getenv('TASK_SOFT_TIME_LIMIT', 6000))  # 100 minutes soft timeout
+mineru_engine_timeout = float(os.getenv('MINERU_ENGINE_TIMEOUT_SECONDS', task_time_limit))
+worker_watchdog_timeout = float(os.getenv('WORKER_WATCHDOG_TIMEOUT_SECONDS', 7500))
+if worker_watchdog_timeout > 0 and worker_watchdog_timeout <= mineru_engine_timeout:
+    raise ValueError(
+        "WORKER_WATCHDOG_TIMEOUT_SECONDS must be greater than "
+        "MINERU_ENGINE_TIMEOUT_SECONDS, or 0 to disable"
+    )
+if broker_visibility_timeout <= max(
+    task_time_limit,
+    mineru_engine_timeout,
+    worker_watchdog_timeout,
+):
+    raise ValueError(
+        "BROKER_VISIBILITY_TIMEOUT_SECONDS must be greater than "
+        "TASK_TIME_LIMIT, MINERU_ENGINE_TIMEOUT_SECONDS, and "
+        "WORKER_WATCHDOG_TIMEOUT_SECONDS"
+    )
 
 # Result settings
 result_expires = int(os.getenv('RESULT_EXPIRES', 86400))           # 1 day
+if result_expires <= broker_visibility_timeout:
+    raise ValueError(
+        "RESULT_EXPIRES must be greater than BROKER_VISIBILITY_TIMEOUT_SECONDS "
+        "so cancellation markers survive task redelivery"
+    )
 
 # Queue configuration
 _task_queue = os.getenv('MINERU_QUEUE', 'mineru-tasks')
@@ -66,7 +94,7 @@ API_PORT = int(os.getenv('API_PORT', 8000))
 
 # Worker settings
 WORKER_NAME = os.getenv('WORKER_NAME', 'mineru-worker')
-WORKER_CONCURRENCY = int(os.getenv('WORKER_CONCURRENCY', 2))
+WORKER_CONCURRENCY = int(os.getenv('WORKER_CONCURRENCY', 1))
 WORKER_POOL = os.getenv('WORKER_POOL', '').strip()
 
 # Paths

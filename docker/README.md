@@ -350,13 +350,15 @@ sh build.sh --api --worker-cpu
 sh build.sh --all              # Build all images (ignores COMPOSE_PROFILES)
 sh build.sh --api              # Build API only
 sh build.sh --worker-cpu       # Build CPU Worker only
-sh build.sh --worker-gpu       # Build GPU Worker only (auto-builds base image first)
-sh build.sh --cleanup         # Build cleanup service only
+sh build.sh --worker-gpu       # Build GPU Worker (builds base image when missing)
+sh build.sh --cleanup          # Build cleanup service only
+sh build.sh --worker-gpu --rebuild-base  # Force base rebuild after MinerU upgrades
 ```
 
 > 💡 **Tips**:
 > - Running `sh build.sh` without parameters automatically reads `COMPOSE_PROFILES` from `docker/.env` and selects the corresponding Worker
-> - The build script automatically checks and builds the base image `mineru-vllm:latest` required for GPU Worker, no manual handling needed
+> - The build script checks and builds `mineru-vllm:latest` when it is missing
+> - Use `--rebuild-base` after changing the MinerU version; otherwise an existing base image is reused
 > - CPU and GPU Workers are mutually exclusive, choose one
 > - If `COMPOSE_PROFILES` is not set or `.env` file doesn't exist, builds all services
 

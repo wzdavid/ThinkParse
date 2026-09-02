@@ -6,6 +6,7 @@
 
 - [Docker 部署](#docker-部署)
 - [生产环境配置](#生产环境配置)
+- [1.3.0 版本试运行](#130-版本试运行)
 - [扩展和优化](#扩展和优化)
 - [监控和日志](#监控和日志)
 - [大规模多机部署](PRODUCTION_MULTI_NODE.zh.md) — S3 + 共享 Redis + 多 GPU 节点
@@ -116,6 +117,7 @@ MINERU_S3_SECURE=true
 ```bash
 CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
 ENVIRONMENT=production
+HEALTH_DEPENDENCY_TIMEOUT_SECONDS=5
 ```
 
 ### 4. 文件大小限制
@@ -127,15 +129,79 @@ MAX_FILE_SIZE=104857600  # 100MB，根据需求调整
 ### 5. Worker 配置
 
 ```bash
-# Worker 并发数（根据服务器资源调整）
-WORKER_CONCURRENCY=2
+# GPU Worker：一卡只运行一个 MinerU 任务
+WORKER_CONCURRENCY=1
 
 # Worker 池类型（必须使用 threads）
 WORKER_POOL=threads
 
+# 使用 MinerU 3.x 内置 processing window 处理长文档
+MINERU_ENABLE_PAGINATION=false
+MINERU_PROCESSING_WINDOW_SIZE=64
+
+# 引擎恢复与可观测性
+MINERU_ENGINE_TIMEOUT_SECONDS=7200
+WORKER_WATCHDOG_TIMEOUT_SECONDS=7500
+BROKER_VISIBILITY_TIMEOUT_SECONDS=9000
+WORKER_HEARTBEAT_SECONDS=15
+GPU_METRICS_INTERVAL_SECONDS=30
+
 # 内存限制（KB）
 WORKER_MAX_MEMORY_PER_CHILD=2000000  # 2GB
 ```
+
+不要通过提高单卡 `WORKER_CONCURRENCY` 扩容。并发解析会争抢同一 GPU；
+应增加 GPU/Worker。旧版 ThinkParse 物理分页会切断跨页上下文，并增加
+chunk/merge 调度阻塞风险，因此仅作为兼容回退。
+
+保持 `WORKER_WATCHDOG_TIMEOUT_SECONDS` 大于
+`MINERU_ENGINE_TIMEOUT_SECONDS`，并保持
+`BROKER_VISIBILITY_TIMEOUT_SECONDS` 大于 watchdog 超时，避免 Redis
+重复投递仍在正常执行的长任务。`RESULT_EXPIRES` 还必须更大，以保证
+取消标记覆盖重投周期。下游请求超时还应预留额外时间，以便引擎上报
+最终状态。
+
+## 1.3.0 版本试运行
+
+1.3.0 已适合在服务器上进行受控试运行。部署前：
+
+1. 备份当前 `.env`、Redis 持久化数据和输出存储。
+2. 对比现有 `.env` 与 `.env.example`；更新代码不会自动向已有环境文件
+   添加新变量。
+3. 保留上一版本的 API、Worker、cleanup 镜像及匹配的源码版本。默认
+   Compose 会挂载 `api/`、`worker/` 和 `shared/`，仅恢复镜像不能回滚
+   应用代码。
+4. 将 `/api/v1/health/deep` 限制为仅运维人员可访问。
+5. 验证最终 Compose 配置：
+   ```bash
+   cd docker && docker compose --profile mineru-gpu config --quiet
+   ```
+
+构建并启动试运行版本：
+
+```bash
+cd docker
+sh build.sh --api --worker-gpu --cleanup --rebuild-base
+docker compose --profile redis --profile mineru-gpu up -d
+```
+
+验收检查：
+
+1. `/health/live` 和 `/health/ready` 返回 HTTP 200。
+2. `/health/deep` 显示版本 `1.3.0`，Redis、存储和 Worker 均可用，
+   Worker 心跳时间正常，并显示预期的 GPU 与引擎状态。
+3. 首次解析在模型初始化后成功完成；再次解析可确认引擎复用。
+4. 取消活动任务后接口返回 `cancel_requested`，任务最终变为
+   `cancelled`，且下一任务能够在新的引擎代次上成功完成。
+5. 代表性的文本型、扫描型、公式密集、表格密集及长 PDF 均能完成，
+   不出现长期残留的活动任务或持续增长的队列。
+6. 至少观察一个正常业务负载周期，并检查 Worker 重启、引擎重启次数、
+   队列深度、任务耗时、内存和磁盘状态。
+
+如果出现 Worker 重启循环、引擎反复崩溃、结果错误、队列持续增长或
+下游 API 不兼容，应停止扩大试运行范围，并恢复保留的镜像、匹配的
+源码版本和 `.env` 备份，随后重新创建容器。回滚时不要删除 Redis 或
+输出数据。
 
 ## 扩展和优化
 
@@ -231,10 +297,26 @@ services:
 
 ### 健康检查
 
-API 提供健康检查端点:
+API 提供分层健康检查端点:
 ```bash
-curl http://localhost:8000/api/v1/health
+curl http://localhost:8000/api/v1/health/live   # API 进程存活
+curl http://localhost:8000/api/v1/health/ready  # Redis、存储与 Worker 就绪
+curl http://localhost:8000/api/v1/health/deep   # 队列、活动任务、心跳与有效配置
 ```
+
+`ready` 在依赖不可用时返回 HTTP 503；`live` 仅用于容器存活检查。
+兼容端点 `/api/v1/health` 保留，并在服务未就绪时返回 HTTP 503。S3
+模式会以只读方式检查两个已配置 bucket 是否存在；每个依赖探针受
+`HEALTH_DEPENDENCY_TIMEOUT_SECONDS` 限制。
+
+`live` 和 `ready` 仅返回聚合诊断数据。面向运维人员的 `deep` 会返回
+存储路径、任务标识和文件名、Worker 名称、GPU 型号/UUID/驱动信息、
+利用率、显存、温度、引擎状态及超期任务。应通过可信网络或 API 网关
+限制 `deep` 的访问，不要直接暴露到公网。
+
+`WORKER_WATCHDOG_TIMEOUT_SECONDS` 应高于系统允许的最长任务超时。超过该
+时限后 Worker 会主动退出，由 Docker 或其他进程管理器重启。仅当外部
+watchdog 提供等效恢复能力时才建议设为 `0`。
 
 ### 监控指标
 

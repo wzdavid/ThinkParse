@@ -6,7 +6,7 @@ Provides asynchronous MinerU document parsing tasks based on Celery
 import os
 import sys
 import json
-import gc
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import uuid
@@ -26,10 +26,20 @@ from celery import Celery, states
 from celery.utils.log import get_task_logger
 from shared import celeryconfig
 from shared.storage import get_storage
+from shared.observability import (
+    TaskCancellationProbe,
+    WorkerHeartbeat,
+    is_task_cancellation_requested,
+    resolve_legacy_pagination,
+)
 from shared.task_result import (
     apply_status_payload,
     hydrate_celery_result,
     slim_celery_result,
+)
+from worker.mineru_engine import (
+    MinerUEngineCancelled,
+    mineru_engine,
 )
 
 if os.getenv('MINERU_DEVICE_MODE') == None or os.getenv('MINERU_DEVICE_MODE') == '' or os.getenv('MINERU_DEVICE_MODE') == 'auto':
@@ -58,15 +68,26 @@ _init_mineru_models_config()
 # Celery application
 celery_app = Celery('mineru_worker')
 celery_app.config_from_object(celeryconfig)
+worker_heartbeat = WorkerHeartbeat(
+    celeryconfig.WORKER_NAME,
+    on_watchdog_timeout=mineru_engine.force_stop,
+)
 
-# MinerU related imports
+# Read package metadata without importing CUDA/model modules in the Worker.
 try:
-    from mineru.cli.common import do_parse, read_fn
-    from mineru.utils.config_reader import get_device
-    from mineru.utils.model_utils import get_vram, clean_memory
+    MINERU_VERSION = version('mineru')
     MINERU_AVAILABLE = True
-except ImportError:
+except PackageNotFoundError:
+    MINERU_VERSION = None
     MINERU_AVAILABLE = False
+
+worker_heartbeat.set_metadata(
+    mineru_version=MINERU_VERSION,
+    concurrency=celeryconfig.WORKER_CONCURRENCY,
+    pool=celeryconfig.WORKER_POOL or 'prefork',
+    device_mode=os.getenv('MINERU_DEVICE_MODE', 'auto'),
+    processing_window_size=int(os.getenv('MINERU_PROCESSING_WINDOW_SIZE', '64')),
+)
 
 # PyPDFium2 for PDF page detection
 try:
@@ -440,13 +461,25 @@ def parse_document_task(
         options = {}
     
     task_id = self.request.id
+    if is_task_cancellation_requested(task_id):
+        logger.warning(f"🛑 Task {task_id} was cancelled before processing started")
+        return {
+            'status': 'cancelled',
+            'file_name': file_name,
+            'backend': backend,
+            'error_message': 'Cancellation requested before processing started',
+            'traceback': '',
+            'completed_at': datetime.now().isoformat(),
+        }
+
     storage = get_storage()
-    
-    # Download file to check if splitting is needed
-    local_file = storage.download_to_local(file_path)
-    local_input_path = Path(local_file)
+    worker_heartbeat.set_task(task_id, file_name)
+    local_input_path: Optional[Path] = None
     
     try:
+        # Download file to check if splitting is needed.
+        local_file = storage.download_to_local(file_path)
+        local_input_path = Path(local_file)
         if not local_input_path.exists():
             import time
             wait_seconds = float(os.getenv('MINERU_WAIT_FOR_INPUT_SECONDS', '5'))
@@ -463,18 +496,17 @@ def parse_document_task(
                     'completed_at': datetime.now().isoformat()
                 }
 
-        # Check if pagination is explicitly disabled by user
-        user_disable_pagination = options.get('enable_pagination') is False
-        
-        # Check global pagination setting
-        pagination_enabled = os.getenv('MINERU_ENABLE_PAGINATION', 'true').lower() == 'true'
+        # Legacy compatibility path. A request-level value overrides the
+        # deployment default; otherwise MinerU's built-in processing windows
+        # are used unless legacy physical splitting is explicitly enabled.
+        requested_pagination = options.get('enable_pagination')
+        pagination_enabled = resolve_legacy_pagination(requested_pagination)
         
         # Determine if splitting is needed
         use_pagination = False
         total_pages = 0
         
-        # Only check if pagination is not explicitly disabled and globally enabled
-        if not user_disable_pagination and pagination_enabled:
+        if pagination_enabled:
             if PYPDFIUM2_AVAILABLE and file_name.lower().endswith('.pdf'):
                 total_pages = get_pdf_page_count(local_input_path)
                 pagination_threshold = int(os.getenv('MINERU_PAGINATION_THRESHOLD', 100))
@@ -520,10 +552,15 @@ def parse_document_task(
     finally:
         # Clean up local file
         try:
-            if local_input_path.exists() and str(local_input_path) != file_path:
+            if (
+                local_input_path is not None
+                and local_input_path.exists()
+                and str(local_input_path) != file_path
+            ):
                 local_input_path.unlink()
         except Exception as e:
             logger.warning(f"Failed to cleanup local temp file: {e}")
+        worker_heartbeat.clear_task()
 
 
 def _handle_split_and_parse(
@@ -1060,7 +1097,11 @@ def _execute_parse_document(
         return slim_celery_result(result)
         
     except Exception as e:
-        logger.exception(f"❌ Task {task_id} failed")
+        cancelled = isinstance(e, MinerUEngineCancelled)
+        if cancelled:
+            logger.warning(f"🛑 Task {task_id} cancelled")
+        else:
+            logger.exception(f"❌ Task {task_id} failed")
         
         # Clean up temporary files
         try:
@@ -1070,7 +1111,7 @@ def _execute_parse_document(
             logger.warning(f"Failed to cleanup temp file {file_path}: {cleanup_error}")
         
         return {
-            'status': 'failed',
+            'status': 'cancelled' if cancelled else 'failed',
             'file_name': file_name,
             'backend': backend,
             'error_message': str(e),
@@ -1103,54 +1144,24 @@ def _parse_with_mineru(
     
     logger.info(f"📄 Using MinerU to parse: {file_name}")
     logger.debug(f"MinerU options: {options}")
-
-    pdf_bytes = None
-    
+    timeout_seconds = celeryconfig.mineru_engine_timeout
+    cancellation = TaskCancellationProbe(task_id)
     try:
-        # Read full file (file_path is already a split chunk if pagination is used)
-        # Convert Path to string for read_fn compatibility
-        pdf_bytes = read_fn(str(file_path))
-        
-        # Enable only content_list output
-        f_dump_content_list = True
-        logger.info(f"🔧 JSON output options: content_list={f_dump_content_list}")
-        
-        # Execute parsing
-        with pypdfium2_lock:
-            do_parse(
-                output_dir=str(output_path),
-                pdf_file_names=[Path(file_name).stem],
-                pdf_bytes_list=[pdf_bytes],
-                p_lang_list=[options.get('lang', 'ch')],
-                backend=backend,
-                parse_method=options.get('method', 'auto'),
-                formula_enable=options.get('formula_enable', True),
-                table_enable=options.get('table_enable', True), 
-                # JSON output options
-                f_dump_content_list=f_dump_content_list,
-            )
-        
+        worker_heartbeat.set_stage("mineru_parse")
+        mineru_engine.parse(
+            file_path=file_path,
+            file_name=file_name,
+            backend=backend,
+            options=options,
+            output_path=output_path,
+            timeout_seconds=timeout_seconds,
+            is_cancel_requested=cancellation.is_requested,
+            on_state_change=lambda state: worker_heartbeat.set_metadata(engine=state),
+        )
+        worker_heartbeat.set_stage("persisting")
         return {'parser': 'MinerU', 'success': True}
-        
     finally:
-        # Clean up memory
-        try:
-            clean_memory()
-        except Exception as e:
-            logger.debug(f"Memory cleanup failed for task {task_id}: {e}")
-        try:
-            if pdf_bytes:
-                del pdf_bytes
-        except Exception:
-            pass
-        try:
-            gc.collect()
-        except Exception:
-            pass
-        try:
-            gc.collect()
-        except Exception:
-            pass
+        cancellation.close()
 
 
 def _parse_with_markitdown(
@@ -1568,6 +1579,7 @@ def merge_chunk_results_task(
 
 
 if __name__ == "__main__":
+    worker_heartbeat.start()
     print("🚀 Starting MinerU Celery Worker...")
     print(f"🏷️  Worker Name: {celeryconfig.WORKER_NAME}")
     print(f"📋 Queue: {celeryconfig.task_default_queue}")

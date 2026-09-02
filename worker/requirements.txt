@@ -2,7 +2,7 @@
 # MinerU Celery 版本依赖
 
 # Core MinerU
-mineru[pipeline]==3.4.0
+mineru[pipeline]==3.4.5
 
 # Image Augmentation (Version Pinned for Compatibility)
 albumentations>=1.4.4,<2.0.0
