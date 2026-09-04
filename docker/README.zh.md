@@ -337,7 +337,7 @@ cp .env.example .env
 # 编辑 .env 并设置 PIP_INDEX_URL 为您偏好的 pip 镜像源
 ```
 
-此 `.env` 文件用于 Docker Compose 的构建参数（例如 `PIP_INDEX_URL`）。
+此 `.env` 文件用于 Docker Compose 的构建参数（例如 `PIP_INDEX_URL`）。`build.sh --rebuild-base` 也会读取同一个 `PIP_INDEX_URL`；不要只依赖环境变量，裸 `docker build Dockerfile.base` 必须显式加 `--build-arg`。
 
 ### 应用运行时配置
 

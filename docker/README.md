@@ -392,7 +392,7 @@ cp .env.example .env
 # Edit .env and set PIP_INDEX_URL to your preferred pip mirror
 ```
 
-This `.env` file is used by Docker Compose for build arguments (e.g., `PIP_INDEX_URL`).
+This `.env` file is used by Docker Compose for build arguments (e.g., `PIP_INDEX_URL`). `build.sh --rebuild-base` reads the same `PIP_INDEX_URL`. A raw `docker build Dockerfile.base` must pass `--build-arg` explicitly.
 
 ### Application Runtime Configuration
 

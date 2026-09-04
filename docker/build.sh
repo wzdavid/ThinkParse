@@ -11,8 +11,20 @@ cd "$SCRIPT_DIR"
 # Get project root directory (parent of docker/)
 PROJECT_ROOT="$(cd .. && pwd)"
 
+# docker compose reads docker/.env automatically; raw `docker build` does not.
+# Load PIP_INDEX_URL so Dockerfile.base uses the same mirror as compose services.
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    _pip_index_url=$(grep "^PIP_INDEX_URL=" "$SCRIPT_DIR/.env" 2>/dev/null \
+        | sed 's/^PIP_INDEX_URL=//' | sed 's/^"//' | sed 's/"$//' | sed "s/^'//" | sed "s/'$//" | xargs || echo "")
+    if [ -n "$_pip_index_url" ]; then
+        PIP_INDEX_URL="$_pip_index_url"
+    fi
+fi
+PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.org/simple}"
+
 echo "=== MinerU Docker Build Script ==="
 echo "Project root: $PROJECT_ROOT"
+echo "PIP_INDEX_URL: $PIP_INDEX_URL"
 echo ""
 
 # Parse command line arguments
@@ -120,7 +132,7 @@ if [ "$BUILD_ALL" = true ] || [ "$BUILD_WORKER_GPU" = true ]; then
         echo "Building base image from Dockerfile.base..."
         cd "$PROJECT_ROOT"
         docker build -f docker/Dockerfile.base \
-            --build-arg PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple} \
+            --build-arg PIP_INDEX_URL="$PIP_INDEX_URL" \
             -t mineru-vllm:latest .
         echo ""
         echo "✓ Base image 'mineru-vllm:latest' built successfully"
