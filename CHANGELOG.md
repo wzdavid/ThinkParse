@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-11
+
+Single-container deployment for schedulers that accept only one container
+(Tianhe / HPC). The four-container Compose stack remains the default.
+
 ### Added
-- Single-container GPU/CPU images (`mineru-allinone`, `mineru-allinone-cpu`) for schedulers that accept only one container (e.g. Tianhe): Redis, API, Worker, and cleanup run under supervisord
+- GPU and CPU all-in-one images (`mineru-allinone`, `mineru-allinone-cpu`)
+- Supervisord process tree that runs Redis, API, Worker, and cleanup in one container
+- `docker-compose.allinone.yml` and `build.sh --allinone` / `--allinone-cpu`
+- English and Chinese single-container deployment guides
+- CI check that validates all-in-one entrypoint, supervisor programs, and Docker files
 
 ## [1.3.0] - 2026-09-02
 
@@ -163,6 +172,7 @@ Upgrade the parsing engine to **MinerU 3.4.0** and rebrand the project as **Thin
 
 ## Version History
 
+- **1.4.0**: Single-container GPU/CPU images for Tianhe/HPC; four-container Compose remains default
 - **1.3.0**: MinerU 3.4.5, cancellable engine isolation, native long-document windows, and layered health diagnostics
 - **1.2.0**: Slim Redis results (hydrate from storage); Redis/temp disk isolation; faster temp cleanup; multi-GPU and multi-node deploy templates
 - **1.1.0**: Rebrand to ThinkParse; MinerU 3.4.0 upgrade with subprocess environment variable fix

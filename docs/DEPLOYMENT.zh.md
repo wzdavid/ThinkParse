@@ -6,7 +6,7 @@
 
 - [Docker 部署](#docker-部署)
 - [生产环境配置](#生产环境配置)
-- [1.3.0 版本试运行](#130-版本试运行)
+- [1.4.0 版本试运行](#140-版本试运行)
 - [扩展和优化](#扩展和优化)
 - [监控和日志](#监控和日志)
 - [大规模多机部署](PRODUCTION_MULTI_NODE.zh.md) — S3 + 共享 Redis + 多 GPU 节点
@@ -164,9 +164,9 @@ chunk/merge 调度阻塞风险，因此仅作为兼容回退。
 取消标记覆盖重投周期。下游请求超时还应预留额外时间，以便引擎上报
 最终状态。
 
-## 1.3.0 版本试运行
+## 1.4.0 版本试运行
 
-1.3.0 已适合在服务器上进行受控试运行。部署前：
+1.4.0 已适合在服务器上进行受控试运行。部署前：
 
 1. 备份当前 `.env`、Redis 持久化数据和输出存储。
 2. 对比现有 `.env` 与 `.env.example`；更新代码不会自动向已有环境文件
@@ -188,10 +188,17 @@ sh build.sh --api --worker-gpu --cleanup --rebuild-base
 docker compose --profile redis --profile mineru-gpu up -d
 ```
 
+天河等只允许一个容器的环境改为构建 all-in-one 镜像，见 [单容器部署](DEPLOYMENT_ALLINONE.zh.md)：
+
+```bash
+cd docker
+sh build.sh --allinone
+```
+
 验收检查：
 
 1. `/health/live` 和 `/health/ready` 返回 HTTP 200。
-2. `/health/deep` 显示版本 `1.3.0`，Redis、存储和 Worker 均可用，
+2. `/health/deep` 显示版本 `1.4.0`，Redis、存储和 Worker 均可用，
    Worker 心跳时间正常，并显示预期的 GPU 与引擎状态。
 3. 首次解析在模型初始化后成功完成；再次解析可确认引擎复用。
 4. 取消活动任务后接口返回 `cancel_requested`，任务最终变为

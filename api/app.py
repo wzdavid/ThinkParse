@@ -43,7 +43,7 @@ from shared.observability import (
 from shared.storage import get_storage
 from shared.task_result import apply_status_payload, hydrate_celery_result
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 
 # Create FastAPI application
 app = FastAPI(
