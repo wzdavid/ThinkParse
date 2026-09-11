@@ -1,0 +1,81 @@
+# Single-container ThinkParse for schedulers that accept only one container (e.g. Tianhe).
+# Do not combine this file with docker-compose.yml — that stack is the four-container default.
+#
+# GPU:
+#   cd docker && sh build.sh --allinone
+#   docker compose -f docker-compose.allinone.yml --profile allinone-gpu up -d
+#
+# CPU:
+#   cd docker && sh build.sh --allinone-cpu
+#   docker compose -f docker-compose.allinone.yml --profile allinone-cpu up -d
+
+name: thinkparse-allinone
+
+services:
+  thinkparse-gpu:
+    profiles: ["allinone-gpu"]
+    image: mineru-allinone:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.allinone
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    container_name: thinkparse-allinone
+    restart: always
+    env_file:
+      - ../.env
+    ports:
+      - "${MINERU_API_PORT:-8000}:8000"
+    environment:
+      - REDIS_URL=redis://127.0.0.1:6379/0
+      - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
+      - WORKER_CONCURRENCY=${GPU_WORKER_CONCURRENCY:-1}
+    volumes:
+      - mineru_output:/tmp/mineru_output
+      - mineru_temp:/tmp/mineru_temp
+      - redis_data:/data/redis
+    networks:
+      - mineru-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  thinkparse-cpu:
+    profiles: ["allinone-cpu"]
+    image: mineru-allinone-cpu:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.allinone.cpu
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        SKIP_MODEL_DOWNLOAD: ${SKIP_MODEL_DOWNLOAD:-false}
+        MINERU_MODEL_SOURCE: ${ALLINONE_MINERU_MODEL_SOURCE:-local}
+    container_name: thinkparse-allinone-cpu
+    restart: always
+    env_file:
+      - ../.env
+    ports:
+      - "${MINERU_API_PORT:-8000}:8000"
+    environment:
+      - REDIS_URL=redis://127.0.0.1:6379/0
+      - MINERU_DEVICE_MODE=cpu
+      - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
+    volumes:
+      - mineru_output:/tmp/mineru_output
+      - mineru_temp:/tmp/mineru_temp
+      - redis_data:/data/redis
+    networks:
+      - mineru-network
+
+volumes:
+  mineru_output:
+  mineru_temp:
+  redis_data:
+
+networks:
+  mineru-network:
+    driver: bridge

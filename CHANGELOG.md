@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Future changes will be documented here
+- Single-container GPU/CPU images (`mineru-allinone`, `mineru-allinone-cpu`) for schedulers that accept only one container (e.g. Tianhe): Redis, API, Worker, and cleanup run under supervisord
 
 ## [1.3.0] - 2026-09-02
 

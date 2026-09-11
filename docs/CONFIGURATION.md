@@ -10,6 +10,8 @@ This document details all available configuration options.
 |----------|-------------|---------|---------|
 | `REDIS_URL` | Redis connection URL | `redis://localhost:6379/0` | `redis://:password@redis:6379/0` |
 
+The all-in-one image (`mineru-allinone`) forces `REDIS_URL=redis://127.0.0.1:6379/0` at startup so it uses the in-container Redis. See [Single-container deployment](DEPLOYMENT_ALLINONE.md).
+
 ### API Service Configuration
 
 | Variable | Description | Default | Example |

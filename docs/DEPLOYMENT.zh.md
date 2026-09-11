@@ -10,6 +10,7 @@
 - [扩展和优化](#扩展和优化)
 - [监控和日志](#监控和日志)
 - [大规模多机部署](PRODUCTION_MULTI_NODE.zh.md) — S3 + 共享 Redis + 多 GPU 节点
+- [单容器部署（天河 / HPC）](DEPLOYMENT_ALLINONE.zh.md) — 四角色一个容器
 
 ## Docker 部署
 
@@ -45,6 +46,8 @@ cd docker && docker compose up -d
 ```
 
 不要同时启用 `mineru-gpu` 与 `mineru-gpu-N`。详见 [docker/README.md](../docker/README.md#multi-gpu-one-worker-per-card)。
+
+**天河 / 只允许一个容器**：不要拆成 Redis、API、Worker、Cleanup 四个容器。构建 `mineru-allinone` 镜像，由调度器只提交这一只容器。见 [单容器部署](DEPLOYMENT_ALLINONE.zh.md)。
 
 ### 构建自定义镜像
 

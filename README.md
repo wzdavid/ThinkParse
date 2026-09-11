@@ -30,7 +30,7 @@ ThinkParse packages the parsing engine behind a stable HTTP API and an asynchron
 - **High-quality document parsing** — extracts Markdown, tables, formulas, images, and structured intermediate results with MinerU 3.4.5.
 - **Multiple document formats** — routes PDF and image files through MinerU, and Office, HTML, and text formats through MarkItDown.
 - **Production task workflow** — submit, poll, prioritize, cancel, and inspect parsing jobs without holding client connections open.
-- **CPU and GPU deployment** — start locally with a CPU worker, use one or multiple GPUs on a server, or scale workers across nodes.
+- **CPU and GPU deployment** — start locally with a CPU worker, use one or multiple GPUs on a server, scale workers across nodes, or run Redis+API+Worker+Cleanup in **one container** for schedulers such as Tianhe.
 - **Reliable long-document processing** — reuses the parsing engine between jobs while isolating it for cancellation, timeout recovery, and automatic restart.
 - **Storage that scales** — use local volumes for a single host or S3-compatible storage for distributed deployments.
 - **Operational visibility** — layered health checks expose readiness, queue depth, worker heartbeats, task runtime, and GPU status.
@@ -190,6 +190,7 @@ Use shared Redis and S3-compatible storage, then run API and worker services on 
 
 - [Documentation index](docs/README.md)
 - [Deployment guide](docs/DEPLOYMENT.md)
+- [Single-container deployment (Tianhe)](docs/DEPLOYMENT_ALLINONE.md)
 - [Configuration reference](docs/CONFIGURATION.md)
 - [API examples](docs/API_EXAMPLES.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)

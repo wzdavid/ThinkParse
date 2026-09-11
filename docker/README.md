@@ -14,7 +14,13 @@ This directory contains all Docker-related configuration files.
 - `Dockerfile.worker.cpu` - CPU Worker image
 - `Dockerfile.cleanup` - Cleanup service image
 - `Dockerfile.base` - Base image (MinerU vLLM)
-- `docker-compose.yml` - Docker Compose configuration
+- `Dockerfile.allinone` - Single-container GPU image (Redis + API + Worker + Cleanup)
+- `Dockerfile.allinone.cpu` - Single-container CPU image
+- `entrypoint-allinone.sh` / `supervisord.allinone.conf` - all-in-one process tree
+- `docker-compose.yml` - Default four-container Compose stack
+- `docker-compose.allinone.yml` - Single-container Compose (Tianhe / HPC)
+
+When the scheduler accepts only one container, do not use the four-container Compose stack. Build and run the all-in-one image; see [Single-container deployment](../docs/DEPLOYMENT_ALLINONE.md).
 
 ## Usage
 
@@ -352,6 +358,8 @@ sh build.sh --api              # Build API only
 sh build.sh --worker-cpu       # Build CPU Worker only
 sh build.sh --worker-gpu       # Build GPU Worker (builds base image when missing)
 sh build.sh --cleanup          # Build cleanup service only
+sh build.sh --allinone         # Build GPU all-in-one image (Tianhe)
+sh build.sh --allinone-cpu     # Build CPU all-in-one image
 sh build.sh --worker-gpu --rebuild-base  # Force base rebuild after MinerU upgrades
 ```
 

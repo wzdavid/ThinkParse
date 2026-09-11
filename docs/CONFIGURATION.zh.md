@@ -10,6 +10,8 @@
 |--------|------|--------|------|
 | `REDIS_URL` | Redis 连接地址 | `redis://localhost:6379/0` | `redis://:password@redis:6379/0` |
 
+单容器镜像（`mineru-allinone`）会在启动时把 `REDIS_URL` 设为 `redis://127.0.0.1:6379/0`，使用容器内 Redis。详见 [单容器部署](DEPLOYMENT_ALLINONE.zh.md)。
+
 ### API 服务配置
 
 | 变量名 | 说明 | 默认值 | 示例 |

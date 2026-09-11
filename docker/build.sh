@@ -33,6 +33,8 @@ BUILD_API=false
 BUILD_WORKER_GPU=false
 BUILD_WORKER_CPU=false
 BUILD_CLEANUP=false
+BUILD_ALLINONE=false
+BUILD_ALLINONE_CPU=false
 REBUILD_BASE=false
 
 while [ "$#" -gt 0 ]; do
@@ -57,6 +59,14 @@ while [ "$#" -gt 0 ]; do
             BUILD_CLEANUP=true
             shift
             ;;
+        --allinone|--all-in-one)
+            BUILD_ALLINONE=true
+            shift
+            ;;
+        --allinone-cpu|--all-in-one-cpu)
+            BUILD_ALLINONE_CPU=true
+            shift
+            ;;
         --rebuild-base)
             REBUILD_BASE=true
             BUILD_WORKER_GPU=true
@@ -64,14 +74,14 @@ while [ "$#" -gt 0 ]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--all|--api|--worker-gpu|--worker-cpu|--cleanup|--rebuild-base]"
+            echo "Usage: $0 [--all|--api|--worker-gpu|--worker-cpu|--cleanup|--allinone|--allinone-cpu|--rebuild-base]"
             exit 1
             ;;
     esac
 done
 
 # If no specific service is specified, try to read from COMPOSE_PROFILES
-if [ "$BUILD_ALL" = false ] && [ "$BUILD_API" = false ] && [ "$BUILD_WORKER_GPU" = false ] && [ "$BUILD_WORKER_CPU" = false ] && [ "$BUILD_CLEANUP" = false ]; then
+if [ "$BUILD_ALL" = false ] && [ "$BUILD_API" = false ] && [ "$BUILD_WORKER_GPU" = false ] && [ "$BUILD_WORKER_CPU" = false ] && [ "$BUILD_CLEANUP" = false ] && [ "$BUILD_ALLINONE" = false ] && [ "$BUILD_ALLINONE_CPU" = false ]; then
     # Try to read COMPOSE_PROFILES from docker/.env file
     if [ -f "$SCRIPT_DIR/.env" ]; then
         # Read COMPOSE_PROFILES from .env file
@@ -161,6 +171,63 @@ if [ "$BUILD_ALL" = true ] || [ "$BUILD_CLEANUP" = true ]; then
     echo "Building mineru-cleanup..."
     docker compose build mineru-cleanup
     echo "✓ mineru-cleanup built"
+    echo ""
+fi
+
+if [ "$BUILD_ALLINONE" = true ]; then
+    if [ "$REBUILD_BASE" = true ] || ! docker image inspect mineru-vllm:latest > /dev/null 2>&1; then
+        if [ "$REBUILD_BASE" = true ]; then
+            echo "Forcing rebuild of base image 'mineru-vllm:latest'..."
+        else
+            echo "Base image 'mineru-vllm:latest' not found. Building it first..."
+        fi
+        echo ""
+        echo "Building base image from Dockerfile.base..."
+        cd "$PROJECT_ROOT"
+        docker build -f docker/Dockerfile.base \
+            --build-arg PIP_INDEX_URL="$PIP_INDEX_URL" \
+            -t mineru-vllm:latest .
+        echo ""
+        echo "✓ Base image 'mineru-vllm:latest' built successfully"
+        echo ""
+        cd "$SCRIPT_DIR"
+    else
+        echo "✓ Base image 'mineru-vllm:latest' already exists"
+        echo ""
+    fi
+
+    echo "Building mineru-allinone (GPU, single container)..."
+    cd "$PROJECT_ROOT"
+    docker build -f docker/Dockerfile.allinone \
+        --build-arg PIP_INDEX_URL="$PIP_INDEX_URL" \
+        -t mineru-allinone:latest .
+    cd "$SCRIPT_DIR"
+    echo "✓ mineru-allinone built"
+    echo ""
+fi
+
+if [ "$BUILD_ALLINONE_CPU" = true ]; then
+    echo "Building mineru-allinone-cpu (single container)..."
+    SKIP_MODEL_DOWNLOAD="${SKIP_MODEL_DOWNLOAD:-false}"
+    if [ -f "$SCRIPT_DIR/.env" ]; then
+        _skip=$(grep "^SKIP_MODEL_DOWNLOAD=" "$SCRIPT_DIR/.env" 2>/dev/null \
+            | sed 's/^SKIP_MODEL_DOWNLOAD=//' | sed 's/^"//' | sed 's/"$//' | sed "s/^'//" | sed "s/'$//" | xargs || echo "")
+        if [ -n "$_skip" ]; then
+            SKIP_MODEL_DOWNLOAD="$_skip"
+        fi
+    fi
+    ALLINONE_MODEL_SOURCE=local
+    if [ "$SKIP_MODEL_DOWNLOAD" = "true" ]; then
+        ALLINONE_MODEL_SOURCE=modelscope
+    fi
+    cd "$PROJECT_ROOT"
+    docker build -f docker/Dockerfile.allinone.cpu \
+        --build-arg PIP_INDEX_URL="$PIP_INDEX_URL" \
+        --build-arg SKIP_MODEL_DOWNLOAD="$SKIP_MODEL_DOWNLOAD" \
+        --build-arg MINERU_MODEL_SOURCE="$ALLINONE_MODEL_SOURCE" \
+        -t mineru-allinone-cpu:latest .
+    cd "$SCRIPT_DIR"
+    echo "✓ mineru-allinone-cpu built"
     echo ""
 fi
 

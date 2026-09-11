@@ -45,6 +45,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
+      - name: Validate all-in-one deploy files
+        run: python3 -m unittest discover -s tests -p 'test_allinone_deploy.py'
+
       - name: Build API image
         uses: docker/build-push-action@v5
         with:

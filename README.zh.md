@@ -30,7 +30,7 @@ ThinkParse 将解析引擎封装在稳定的 HTTP API 和异步 Worker 架构之
 - **高质量文档解析** —— 基于 MinerU 3.4.5 提取 Markdown、表格、公式、图片和结构化中间结果。
 - **支持多种文档格式** —— PDF 与图片交由 MinerU 解析，Office、HTML 和文本格式交由 MarkItDown 转换。
 - **完整的生产任务流程** —— 无需长时间保持客户端连接，即可提交、轮询、设置优先级、取消和检查解析任务。
-- **支持 CPU 与 GPU 部署** —— 可用 CPU Worker 本地启动，也可在单台服务器使用一张或多张 GPU，或跨节点扩展 Worker。
+- **支持 CPU 与 GPU 部署** —— 可用 CPU Worker 本地启动，也可在单台服务器使用一张或多张 GPU，或跨节点扩展 Worker；天河等只允许一个容器的调度环境可使用 **all-in-one 单容器**。
 - **可靠处理长文档** —— 在任务之间复用解析引擎，并通过进程隔离实现取消、超时恢复和自动重启。
 - **可扩展存储** —— 单机使用本地卷，分布式部署使用 S3 兼容存储。
 - **清晰的运行状态** —— 分层健康检查提供就绪状态、队列深度、Worker 心跳、任务耗时和 GPU 状态。
@@ -190,6 +190,7 @@ Python、JavaScript、批处理、优先级和错误处理示例请参阅 [API �
 
 - [文档索引](docs/README.zh.md)
 - [部署指南](docs/DEPLOYMENT.zh.md)
+- [单容器部署（天河）](docs/DEPLOYMENT_ALLINONE.zh.md)
 - [配置参考](docs/CONFIGURATION.zh.md)
 - [API 示例](docs/API_EXAMPLES.zh.md)
 - [故障排除](docs/TROUBLESHOOTING.zh.md)

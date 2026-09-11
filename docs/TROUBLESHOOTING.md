@@ -256,6 +256,8 @@ Engine core initialization failed. See root cause above.
    cd docker && docker compose ps redis
    ```
 
+4. **All-in-one image (Tianhe)**: do not use `redis://redis:6379/0`. The all-in-one entrypoint forces `redis://127.0.0.1:6379/0`. See [Single-container deployment](DEPLOYMENT_ALLINONE.md).
+
 2. Verify Redis connection address:
    - Docker Compose: `redis://redis:6379/0`
    - Local development: `redis://localhost:6379/0`

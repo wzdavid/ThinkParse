@@ -258,6 +258,8 @@ Engine core initialization failed. See root cause above.
    docker compose ps redis
    ```
 
+4. **单容器镜像（天河）**：不要使用 `redis://redis:6379/0`。all-in-one 入口会强制 `redis://127.0.0.1:6379/0`。见 [单容器部署](DEPLOYMENT_ALLINONE.zh.md)。
+
 2. 验证 Redis 连接地址:
    - Docker Compose: `redis://redis:6379/0`
    - 本地开发: `redis://localhost:6379/0`

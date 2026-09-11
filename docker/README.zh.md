@@ -14,7 +14,13 @@
 - `Dockerfile.worker.cpu` - CPU Worker 镜像
 - `Dockerfile.cleanup` - 清理服务镜像
 - `Dockerfile.base` - 基础镜像（MinerU vLLM）
-- `docker-compose.yml` - Docker Compose 配置
+- `Dockerfile.allinone` - 单容器 GPU 镜像（Redis + API + Worker + Cleanup）
+- `Dockerfile.allinone.cpu` - 单容器 CPU 镜像
+- `entrypoint-allinone.sh` / `supervisord.allinone.conf` - 单容器进程编排
+- `docker-compose.yml` - 默认四容器 Docker Compose
+- `docker-compose.allinone.yml` - 单容器 Compose（天河 / HPC）
+
+调度系统只能提交一个容器时，不要用上面的四容器 Compose。构建并运行 all-in-one 镜像，说明见 [单容器部署](../docs/DEPLOYMENT_ALLINONE.zh.md)。
 
 ## 使用方法
 
@@ -297,6 +303,8 @@ sh build.sh --api              # 仅构建 API
 sh build.sh --worker-cpu       # 仅构建 CPU Worker
 sh build.sh --worker-gpu       # 构建 GPU Worker（缺少基础镜像时自动构建）
 sh build.sh --cleanup          # 仅构建清理服务
+sh build.sh --allinone         # 构建 GPU 单容器镜像（天河）
+sh build.sh --allinone-cpu     # 构建 CPU 单容器镜像
 sh build.sh --worker-gpu --rebuild-base  # MinerU 升级后强制重建基础镜像
 ```
 

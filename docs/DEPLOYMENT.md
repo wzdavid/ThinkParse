@@ -10,6 +10,7 @@ This document provides detailed instructions on how to deploy ThinkParse in prod
 - [Scaling and Optimization](#scaling-and-optimization)
 - [Monitoring and Logging](#monitoring-and-logging)
 - [Large-scale multi-node](PRODUCTION_MULTI_NODE.md) — S3 + shared Redis + multi-GPU hosts
+- [Single-container (Tianhe / HPC)](DEPLOYMENT_ALLINONE.md) — all four roles in one container
 
 ## Docker Deployment
 
@@ -45,6 +46,8 @@ cd docker && docker compose up -d
 ```
 
 Do not enable `mineru-gpu` together with `mineru-gpu-N`. Details: [docker/README.md](../docker/README.md#multi-gpu-one-worker-per-card).
+
+**Tianhe / single-container schedulers**: do not split Redis, API, Worker, and Cleanup. Build `mineru-allinone` and submit that one image. See [Single-container deployment](DEPLOYMENT_ALLINONE.md).
 
 ### Building Custom Images
 
