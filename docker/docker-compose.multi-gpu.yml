@@ -23,6 +23,10 @@
 # Template includes GPU 0–7. Enable only the profiles that match installed cards.
 # To add GPU 8+, copy a service block and bump the index.
 #
+# device_ids selects the physical card and the NVIDIA runtime remaps it to
+# index 0 inside the container. CUDA_VISIBLE_DEVICES must stay 0 on every
+# worker. Setting it to the host index (1, 2, ...) hides the only visible GPU.
+#
 # Dedicated GPU host in a multi-node cluster (no local API/cleanup):
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml:docker-compose.worker-only.yml
 #   COMPOSE_PROFILES=mineru-gpu-0,mineru-gpu-1
@@ -75,7 +79,7 @@ services:
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
-      - CUDA_VISIBLE_DEVICES=1
+      - CUDA_VISIBLE_DEVICES=0
       - WORKER_NAME=mineru-gpu-1
       - WORKER_CONCURRENCY=${GPU_WORKER_CONCURRENCY:-1}
     deploy:
@@ -93,7 +97,7 @@ services:
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
-      - CUDA_VISIBLE_DEVICES=2
+      - CUDA_VISIBLE_DEVICES=0
       - WORKER_NAME=mineru-gpu-2
       - WORKER_CONCURRENCY=${GPU_WORKER_CONCURRENCY:-1}
     deploy:
@@ -111,7 +115,7 @@ services:
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
-      - CUDA_VISIBLE_DEVICES=3
+      - CUDA_VISIBLE_DEVICES=0
       - WORKER_NAME=mineru-gpu-3
       - WORKER_CONCURRENCY=${GPU_WORKER_CONCURRENCY:-1}
     deploy:
@@ -129,7 +133,7 @@ services:
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
-      - CUDA_VISIBLE_DEVICES=4
+      - CUDA_VISIBLE_DEVICES=0
       - WORKER_NAME=mineru-gpu-4
       - WORKER_CONCURRENCY=${GPU_WORKER_CONCURRENCY:-1}
     deploy:
@@ -147,7 +151,7 @@ services:
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
-      - CUDA_VISIBLE_DEVICES=5
+      - CUDA_VISIBLE_DEVICES=0
       - WORKER_NAME=mineru-gpu-5
       - WORKER_CONCURRENCY=${GPU_WORKER_CONCURRENCY:-1}
     deploy:
@@ -165,7 +169,7 @@ services:
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
-      - CUDA_VISIBLE_DEVICES=6
+      - CUDA_VISIBLE_DEVICES=0
       - WORKER_NAME=mineru-gpu-6
       - WORKER_CONCURRENCY=${GPU_WORKER_CONCURRENCY:-1}
     deploy:
@@ -183,7 +187,7 @@ services:
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
-      - CUDA_VISIBLE_DEVICES=7
+      - CUDA_VISIBLE_DEVICES=0
       - WORKER_NAME=mineru-gpu-7
       - WORKER_CONCURRENCY=${GPU_WORKER_CONCURRENCY:-1}
     deploy:
