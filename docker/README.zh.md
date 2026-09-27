@@ -96,8 +96,43 @@ cd docker && docker compose up -d
 - `mineru-cleanup` 服务**没有 profile，会自动启动**（自动清理服务）
 - `redis` 服务需要 `redis` profile
 - `mineru-worker-cpu` 需要 `mineru-cpu` profile
-- `mineru-worker-gpu` 需要 `mineru-gpu` profile
+- `mineru-worker-gpu` 需要 `mineru-gpu` profile（单个 Worker；能看到全部 GPU，通常只用 cuda:0）
+- 多卡：`sh gpu-up.sh`（不要同时启用 `mineru-gpu`）
 - **请始终在 `docker/` 目录下运行 `docker compose`**（先执行 `cd docker`），以确保 `docker/.env`（含 `COMPOSE_PROFILES`）被正确加载
+
+### 多卡 Worker
+
+默认 `mineru-gpu` 是一个进程，`count: all`，通常只用 `cuda:0`。`gpu-up.sh` 会启动 `MINERU_GPU_COUNT × MINERU_WORKERS_PER_GPU` 个容器。每个容器用 `device_ids` 固定一张物理卡；卡在容器里被映射成 index 0，所以 `CUDA_VISIBLE_DEVICES` 保持 `0`。
+
+`GPU_WORKER_CONCURRENCY` 保持 `1`。一个进程里的 MinerU 引擎有锁，提高它不会并行解析。同一张卡上的并行靠再加一个容器。
+
+```bash
+# docker/.env
+MINERU_GPU_COUNT=2          # 留空则用 nvidia-smi -L
+MINERU_WORKERS_PER_GPU=4
+GPU_WORKER_CONCURRENCY=1
+```
+
+```bash
+cd docker && sh gpu-up.sh
+sh gpu-up.sh --render-only          # 只生成文件，不启动
+docker exec mineru-worker-gpu-0-0 nvidia-smi -L
+docker exec mineru-worker-gpu-1-0 nvidia-smi -L
+```
+
+脚本写出 `docker-compose.gpus.yml`（已 gitignore），并启动 profile `redis` 和 `mineru-multi-gpu`。启动前会先检查 Compose。然后停掉名字不在生成文件里的 GPU Worker：`mineru-worker-gpu`、`mineru-worker-gpu-0`、`mineru-worker-gpu-0b`，以及把 `MINERU_WORKERS_PER_GPU` 调小后留下的 `mineru-worker-gpu-0-3` 这类容器。它们会抢同一条 `mineru-tasks` 队列。如果 `mineru-worker:latest` 还没构建，脚本不会停这些容器。
+
+**专用 GPU 机（多机）：** `MINERU_GPU_WORKER_ONLY=1`，本机不启 API 和 cleanup。`REDIS_URL` 和 S3 指向共享服务。
+
+```bash
+MINERU_GPU_WORKER_ONLY=1 sh gpu-up.sh
+```
+
+见[大规模多节点部署](../docs/PRODUCTION_MULTI_NODE.zh.md)。
+
+**ThinkExtract：** 本脚本不配置它。`INGESTION_MINERU_MAX_INFLIGHT` 设为 Worker 总数或略高，backfill worker 副本数要高于这个 inflight。否则队列是空的，GPU 会空等 ThinkExtract 做解析后的处理。
+
+`docker-compose.multi-gpu.yml` 是旧的一卡一个容器模板（`mineru-gpu-0` … `mineru-gpu-7`）。新部署用 `gpu-up.sh`。
 
 **手动指定 Profile**（命令行方式，不推荐）：
 

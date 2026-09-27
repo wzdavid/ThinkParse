@@ -66,7 +66,7 @@ The all-in-one image (`mineru-allinone`) forces `REDIS_URL=redis://127.0.0.1:637
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `WORKER_NAME` | Worker name | `mineru-worker` | `mineru-worker-1` |
-| `WORKER_CONCURRENCY` | Worker concurrency; keep one active task per GPU | `1` | `1` |
+| `WORKER_CONCURRENCY` | Concurrency inside one worker process; keep 1 on GPU and add containers to parallelize | `1` | `1` |
 | `WORKER_POOL` | Worker pool type | `threads` | `threads` |
 | `WORKER_MAX_TASKS_PER_CHILD` | Max tasks per child process | `100` | `50` |
 | `WORKER_PREFETCH_MULTIPLIER` | Prefetch multiplier | `1` | `1` |

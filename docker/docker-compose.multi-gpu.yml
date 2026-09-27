@@ -1,33 +1,30 @@
-# Multi-GPU worker template (optional override)
+# Legacy one-worker-per-card template.
 #
-# Default docker-compose.yml runs ONE mineru-worker-gpu that sees all GPUs
-# (count: all) but typically only uses cuda:0. This file adds one Celery
-# worker per GPU so bulk queues can use multiple cards in parallel.
+# Prefer docker/gpu-up.sh. It writes docker-compose.gpus.yml from
+# MINERU_GPU_COUNT and MINERU_WORKERS_PER_GPU, so several engines can share
+# one card without copying service blocks.
 #
-# Usage (from docker/):
-#   1. Do NOT enable profile "mineru-gpu" (single shared worker).
-#   2. Enable one profile per card you want, e.g. mineru-gpu-0,mineru-gpu-1
+#   cd docker && sh gpu-up.sh
+#
+# This file remains for hosts already started with profiles mineru-gpu-0 …
+# mineru-gpu-7 (one container each). Do not run it together with gpu-up.sh:
+# both sets consume the same Celery queue.
+#
+# Do NOT enable profile "mineru-gpu" (single shared worker, usually cuda:0).
 #
 # Example — 2 GPUs + Redis:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml
 #   COMPOSE_PROFILES=redis,mineru-gpu-0,mineru-gpu-1
+#   GPU_WORKER_CONCURRENCY=1
 #   docker compose up -d
-#
-# Or one-shot:
-#   docker compose -f docker-compose.yml -f docker-compose.multi-gpu.yml \
-#     --profile redis --profile mineru-gpu-0 --profile mineru-gpu-1 up -d
-#
-# Optional env (docker/.env):
-#   GPU_WORKER_CONCURRENCY=1   # keep 1 per card unless you know VRAM headroom
-#
-# Template includes GPU 0–7. Enable only the profiles that match installed cards.
-# To add GPU 8+, copy a service block and bump the index.
 #
 # device_ids selects the physical card and the NVIDIA runtime remaps it to
 # index 0 inside the container. CUDA_VISIBLE_DEVICES must stay 0 on every
 # worker. Setting it to the host index (1, 2, ...) hides the only visible GPU.
 #
-# Dedicated GPU host in a multi-node cluster (no local API/cleanup):
+# Dedicated GPU host (no local API/cleanup):
+#   MINERU_GPU_WORKER_ONLY=1 sh gpu-up.sh
+#   # or, with this legacy file:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml:docker-compose.worker-only.yml
 #   COMPOSE_PROFILES=mineru-gpu-0,mineru-gpu-1
 

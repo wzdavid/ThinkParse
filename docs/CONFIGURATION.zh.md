@@ -66,7 +66,7 @@
 | 变量名 | 说明 | 默认值 | 示例 |
 |--------|------|--------|------|
 | `WORKER_NAME` | Worker 名称 | `mineru-worker` | `mineru-worker-1` |
-| `WORKER_CONCURRENCY` | Worker 并发数；GPU 建议一卡一个任务 | `1` | `1` |
+| `WORKER_CONCURRENCY` | 单个 Worker 进程的并发；GPU 保持 1，并行靠增加容器 | `1` | `1` |
 | `WORKER_POOL` | Worker 池类型 | `threads` | `threads` |
 | `WORKER_MAX_TASKS_PER_CHILD` | 每个子进程最大任务数 | `100` | `50` |
 | `WORKER_PREFETCH_MULTIPLIER` | 预取倍数 | `1` | `1` |

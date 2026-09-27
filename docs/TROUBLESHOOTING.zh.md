@@ -389,7 +389,7 @@ docker compose exec mineru-worker-cpu env | grep WORKER_POOL
 
 3. 优化 Worker 配置:
    ```bash
-   # GPU：一卡一任务；CPU 才根据核数逐步提高
+   # GPU：每个进程一个任务（GPU_WORKER_CONCURRENCY=1），并行用 gpu-up.sh 加容器；CPU 才根据核数逐步提高
    WORKER_CONCURRENCY=1
    WORKER_PREFETCH_MULTIPLIER=1
    MINERU_ENABLE_PAGINATION=false

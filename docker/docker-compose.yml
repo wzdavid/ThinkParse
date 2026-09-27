@@ -61,7 +61,7 @@ services:
     profiles: ["mineru-gpu"]
     image: mineru-worker:latest
     # Single worker: NVIDIA count:all (visible), but MinerU typically uses cuda:0 only.
-    # For one worker per GPU card, see docker-compose.multi-gpu.yml.
+    # For several cards or several workers per card, use sh gpu-up.sh.
     # NOTE: This service depends on base image 'mineru-vllm:latest'
     # Build the base image first using: docker build -f docker/Dockerfile.base -t mineru-vllm:latest ..
     # Or use the build script: sh build.sh --worker-gpu

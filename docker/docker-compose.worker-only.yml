@@ -4,15 +4,14 @@
 # profile (always on). On a dedicated GPU machine that is wrong: you would get
 # extra API instances and duplicate cleanup jobs.
 #
-# Use with the multi-GPU template, e.g. in docker/.env:
+# Prefer: MINERU_GPU_WORKER_ONLY=1 sh gpu-up.sh
+# That loads this file and starts only the generated mineru-multi-gpu workers.
+#
+# Legacy multi-gpu.yml, e.g. in docker/.env:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml:docker-compose.worker-only.yml
 #   COMPOSE_PROFILES=mineru-gpu-0,mineru-gpu-1
 #   # REDIS_URL / S3 must point at shared services (not hostname "redis" unless
 #   # that container is on this host's compose network)
-#
-# Or one-shot:
-#   docker compose -f docker-compose.yml -f docker-compose.multi-gpu.yml \
-#     -f docker-compose.worker-only.yml --profile mineru-gpu-0 --profile mineru-gpu-1 up -d
 
 services:
   mineru-api:

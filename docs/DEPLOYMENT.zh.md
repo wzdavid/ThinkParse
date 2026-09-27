@@ -6,7 +6,7 @@
 
 - [Docker 部署](#docker-部署)
 - [生产环境配置](#生产环境配置)
-- [1.4.0 版本试运行](#140-版本试运行)
+- [1.4.1 版本试运行](#141-版本试运行)
 - [扩展和优化](#扩展和优化)
 - [监控和日志](#监控和日志)
 - [大规模多机部署](PRODUCTION_MULTI_NODE.zh.md) — S3 + 共享 Redis + 多 GPU 节点
@@ -32,20 +32,20 @@ cd docker && docker compose --profile mineru-cpu up -d
 cd docker && docker compose --profile mineru-gpu up -d
 ```
 
-**多卡（每卡一个 Worker）**：默认 `mineru-gpu` 是单个 Worker（通常只用 `cuda:0`）。使用多卡模板：
+**多卡**：默认 `mineru-gpu` 是单个 Worker（通常只用 `cuda:0`）。按卡数和每卡进程数生成容器：
 
 ```bash
 # docker/.env
-COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml
-COMPOSE_PROFILES=redis,mineru-gpu-0,mineru-gpu-1
+MINERU_GPU_COUNT=2
+MINERU_WORKERS_PER_GPU=4
 GPU_WORKER_CONCURRENCY=1
 ```
 
 ```bash
-cd docker && docker compose up -d
+cd docker && sh gpu-up.sh
 ```
 
-不要同时启用 `mineru-gpu` 与 `mineru-gpu-N`。详见 [docker/README.md](../docker/README.md#multi-gpu-one-worker-per-card)。
+`GPU_WORKER_CONCURRENCY` 保持 1。不要同时启用 `mineru-gpu`。详见 [docker/README.md](../docker/README.md#multi-gpu-workers)。
 
 **天河 / 只允许一个容器**：不要拆成 Redis、API、Worker、Cleanup 四个容器。构建 `mineru-allinone` 镜像，由调度器只提交这一只容器。见 [单容器部署](DEPLOYMENT_ALLINONE.zh.md)。
 
@@ -153,9 +153,11 @@ GPU_METRICS_INTERVAL_SECONDS=30
 WORKER_MAX_MEMORY_PER_CHILD=2000000  # 2GB
 ```
 
-不要通过提高单卡 `WORKER_CONCURRENCY` 扩容。并发解析会争抢同一 GPU；
-应增加 GPU/Worker。旧版 ThinkParse 物理分页会切断跨页上下文，并增加
-chunk/merge 调度阻塞风险，因此仅作为兼容回退。
+不要通过提高 `WORKER_CONCURRENCY` 或 `GPU_WORKER_CONCURRENCY` 扩容。
+一个进程里的 MinerU 引擎有锁，提高并发不会在 GPU 上并行解析。
+用 `MINERU_WORKERS_PER_GPU`（`sh gpu-up.sh`）增加容器。
+旧版 ThinkParse 物理分页会切断跨页上下文，并增加 chunk/merge 调度阻塞风险，
+因此仅作为兼容回退。
 
 保持 `WORKER_WATCHDOG_TIMEOUT_SECONDS` 大于
 `MINERU_ENGINE_TIMEOUT_SECONDS`，并保持
@@ -164,9 +166,9 @@ chunk/merge 调度阻塞风险，因此仅作为兼容回退。
 取消标记覆盖重投周期。下游请求超时还应预留额外时间，以便引擎上报
 最终状态。
 
-## 1.4.0 版本试运行
+## 1.4.1 版本试运行
 
-1.4.0 已适合在服务器上进行受控试运行。部署前：
+1.4.1 已适合在服务器上进行受控试运行。部署前：
 
 1. 备份当前 `.env`、Redis 持久化数据和输出存储。
 2. 对比现有 `.env` 与 `.env.example`；更新代码不会自动向已有环境文件
@@ -177,7 +179,12 @@ chunk/merge 调度阻塞风险，因此仅作为兼容回退。
 4. 将 `/api/v1/health/deep` 限制为仅运维人员可访问。
 5. 验证最终 Compose 配置：
    ```bash
+   # 单卡：
    cd docker && docker compose --profile mineru-gpu config --quiet
+   # 多卡：
+   cd docker && sh gpu-up.sh --render-only && \
+     docker compose -f docker-compose.yml -f docker-compose.gpus.yml \
+       --profile redis --profile mineru-multi-gpu config --quiet
    ```
 
 构建并启动试运行版本：
@@ -185,7 +192,10 @@ chunk/merge 调度阻塞风险，因此仅作为兼容回退。
 ```bash
 cd docker
 sh build.sh --api --worker-gpu --cleanup --rebuild-base
+# 单卡：
 docker compose --profile redis --profile mineru-gpu up -d
+# 多卡（在 docker/.env 设置 MINERU_GPU_COUNT / MINERU_WORKERS_PER_GPU）：
+sh gpu-up.sh
 ```
 
 天河等只允许一个容器的环境改为构建 all-in-one 镜像，见 [单容器部署](DEPLOYMENT_ALLINONE.zh.md)：
@@ -198,7 +208,7 @@ sh build.sh --allinone
 验收检查：
 
 1. `/health/live` 和 `/health/ready` 返回 HTTP 200。
-2. `/health/deep` 显示版本 `1.4.0`，Redis、存储和 Worker 均可用，
+2. `/health/deep` 显示版本 `1.4.1`，Redis、存储和 Worker 均可用，
    Worker 心跳时间正常，并显示预期的 GPU 与引擎状态。
 3. 首次解析在模型初始化后成功完成；再次解析可确认引擎复用。
 4. 取消活动任务后接口返回 `cancel_requested`，任务最终变为

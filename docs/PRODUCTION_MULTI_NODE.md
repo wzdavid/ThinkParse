@@ -1,7 +1,7 @@
 # Large-Scale Production: Multi-Node Multi-Worker
 
 Deployment guide for ThinkParse / MinerU API across multiple servers and GPU workers.  
-Single-host setup: [DEPLOYMENT.md](DEPLOYMENT.md). Single-host multi-GPU: [docker-compose.multi-gpu.yml](../docker/docker-compose.multi-gpu.yml).
+Single-host setup: [DEPLOYMENT.md](DEPLOYMENT.md). Multi-GPU workers: `cd docker && sh gpu-up.sh`.
 
 ## 1. Recommended architecture
 
@@ -12,7 +12,7 @@ Do **not** share local `TEMP_DIR` / `OUTPUT_DIR` across machines. Use shared obj
 | **S3 / MinIO** | Dedicated / managed | Shared uploads and parse outputs |
 | **Redis** | Dedicated / managed | Celery broker + slim task metadata (bodies not in Redis) |
 | **API** | ≥1 hosts, horizontally scalable | Submit + status only |
-| **GPU workers** | 1–N containers per GPU host | One worker per GPU; same queue |
+| **GPU workers** | 1–N containers per GPU host | `MINERU_WORKERS_PER_GPU` engines per card; same queue |
 | **Cleanup** | Exactly one instance | Output cleanup (temp via S3 lifecycle) |
 
 ```mermaid
@@ -58,7 +58,7 @@ flowchart TB
 | GPU nodes | 1–8 GPUs each | Scale out for throughput |
 | Cleanup | Small VM or with API | **One** globally |
 
-Prefer adding GPU workers over raising per-card concurrency. Default `GPU_WORKER_CONCURRENCY=1`.
+Keep `GPU_WORKER_CONCURRENCY=1` (one process does not parse in parallel). Scale by adding GPU hosts or raising `MINERU_WORKERS_PER_GPU`, then re-run `sh gpu-up.sh`. Lower the per-card process count if VRAM is tight.
 
 ## 3. Shared config (all nodes)
 
@@ -108,13 +108,14 @@ Put an LB in front of API replicas.
 
 Dedicated GPU hosts must **not** run bare `docker compose up -d`: `mineru-api` / `mineru-cleanup` have no profile and would start too (duplicate APIs / cleanup).
 
-Use the worker-only overlay + multi-GPU template (**do not** enable `mineru-gpu`):
+Use `gpu-up.sh` with the worker-only overlay (**do not** enable `mineru-gpu`):
 
 ```bash
 # docker/.env
-COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml:docker-compose.worker-only.yml
-COMPOSE_PROFILES=mineru-gpu-0,mineru-gpu-1
+MINERU_GPU_COUNT=2
+MINERU_WORKERS_PER_GPU=4
 GPU_WORKER_CONCURRENCY=1
+MINERU_GPU_WORKER_ONLY=1
 ```
 
 ```bash
@@ -125,21 +126,21 @@ WORKER_POOL=threads
 ```
 
 ```bash
-cd docker && docker compose up -d
-docker compose ps   # only mineru-worker-gpu-* 
-docker exec mineru-worker-gpu-0 nvidia-smi -L
+cd docker && sh gpu-up.sh
+docker compose -f docker-compose.yml -f docker-compose.gpus.yml \
+  -f docker-compose.worker-only.yml --profile mineru-multi-gpu ps
+docker exec mineru-worker-gpu-0-0 nvidia-smi -L
 ```
 
 Same queue / Redis / S3 on every GPU host. Workers compete for tasks automatically.
 
-For **single-host** Redis+API+multi-GPU, omit `worker-only.yml` and set  
-`COMPOSE_PROFILES=redis,mineru-gpu-0,mineru-gpu-1`.
+For **single-host** Redis+API+multi-GPU, leave `MINERU_GPU_WORKER_ONLY` unset and run `sh gpu-up.sh`. The older `docker-compose.multi-gpu.yml` profiles `mineru-gpu-0,mineru-gpu-1` still work, but do not run them beside the generated workers.
 
 ## 5. Ops notes
 
 - Use `/api/v1/tasks/submit` + status polling — not `/file_parse` (local-path, not S3-safe).  
-- Scale throughput by adding GPU hosts / enabling more `mineru-gpu-N` profiles.  
+- Scale throughput by adding GPU hosts or raising `MINERU_WORKERS_PER_GPU`, then re-run `sh gpu-up.sh`.  
 - Keep Redis on its own disk; bodies live in S3 after the slim-result change.  
-- Checklist: shared S3 + Redis + queue names; one cleanup; one worker per GPU; LB for API HA.
+- Checklist: shared S3 + Redis + queue names; one cleanup; `GPU_WORKER_CONCURRENCY=1`; LB for API HA.
 
 See also: [S3_STORAGE.md](S3_STORAGE.md), [CLEANUP_CONTAINER.md](CLEANUP_CONTAINER.md), [DEPLOYMENT.md](DEPLOYMENT.md).

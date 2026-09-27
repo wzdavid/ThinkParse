@@ -83,10 +83,8 @@ Done! Services are now running.
 COMPOSE_PROFILES=redis,mineru-gpu      # Single GPU Worker + internal Redis (default)
 COMPOSE_PROFILES=redis,mineru-cpu      # CPU Worker + internal Redis
 
-# Multi-GPU (one worker per card) — also set COMPOSE_FILE:
-# COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml
-# COMPOSE_PROFILES=redis,mineru-gpu-0,mineru-gpu-1
-# GPU_WORKER_CONCURRENCY=1
+# Multi-GPU — do not set COMPOSE_PROFILES to mineru-gpu. From docker/:
+#   MINERU_GPU_COUNT=2 MINERU_WORKERS_PER_GPU=4 sh gpu-up.sh
 
 # Using external Redis (without redis profile)
 COMPOSE_PROFILES=mineru-gpu
@@ -102,37 +100,44 @@ cd docker && docker compose up -d
 - `redis` service requires `redis` profile
 - `mineru-worker-cpu` requires `mineru-cpu` profile
 - `mineru-worker-gpu` requires `mineru-gpu` profile (single worker; sees all GPUs, usually uses cuda:0)
-- Multi-GPU: use `docker-compose.multi-gpu.yml` + profiles `mineru-gpu-0` … `mineru-gpu-7` (do **not** also enable `mineru-gpu`)
+- Multi-GPU: `sh gpu-up.sh` (do **not** also enable `mineru-gpu`)
 - **Always run `docker compose` from the `docker/` directory** (`cd docker` first) so that `docker/.env` (including `COMPOSE_PROFILES`) is loaded correctly
 
-### Multi-GPU (one worker per card)
+### Multi-GPU workers
 
-Default `mineru-gpu` is a single worker with `count: all`. To use multiple cards in parallel:
+Default `mineru-gpu` is one process with `count: all` and usually uses only `cuda:0`. `gpu-up.sh` starts `MINERU_GPU_COUNT × MINERU_WORKERS_PER_GPU` containers. Each container pins one physical card with `device_ids`. Inside the container that card is index 0, so `CUDA_VISIBLE_DEVICES` stays `0`.
+
+`GPU_WORKER_CONCURRENCY` stays `1`. One process has a single MinerU engine lock, so a higher value does not run two GPU parses. Extra parallelism is another container on the same card.
 
 ```bash
 # docker/.env
-COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml
-COMPOSE_PROFILES=redis,mineru-gpu-0,mineru-gpu-1
+MINERU_GPU_COUNT=2          # omit to use nvidia-smi -L
+MINERU_WORKERS_PER_GPU=4
 GPU_WORKER_CONCURRENCY=1
 ```
 
 ```bash
-cd docker && docker compose up -d
-# Verify each worker only sees one device:
-docker exec mineru-worker-gpu-0 nvidia-smi -L
-docker exec mineru-worker-gpu-1 nvidia-smi -L
+cd docker && sh gpu-up.sh
+# Review the generated file without starting:
+sh gpu-up.sh --render-only
+# Each container sees one device, labeled GPU 0:
+docker exec mineru-worker-gpu-0-0 nvidia-smi -L
+docker exec mineru-worker-gpu-1-0 nvidia-smi -L
 ```
 
-Enable only profiles for cards that exist (`mineru-gpu-0` … `mineru-gpu-7`). Copy a service block in `docker-compose.multi-gpu.yml` if you need GPU index ≥ 8.
+The script writes `docker-compose.gpus.yml` (gitignored) and starts profiles `redis` and `mineru-multi-gpu`. Before that, it checks the compose file. It then stops GPU worker containers whose names are not in the generated file: `mineru-worker-gpu`, `mineru-worker-gpu-0`, `mineru-worker-gpu-0b`, and extra slots such as `mineru-worker-gpu-0-3` left from a larger `MINERU_WORKERS_PER_GPU`. Those containers consume the same `mineru-tasks` queue. If `mineru-worker:latest` is not built yet, the script leaves them running.
 
-**Dedicated GPU host (multi-node):** also load `docker-compose.worker-only.yml`, otherwise `mineru-api` / `mineru-cleanup` start automatically:
+**Dedicated GPU host (multi-node):** set `MINERU_GPU_WORKER_ONLY=1` so API and cleanup stay off. Point `REDIS_URL` and S3 at the shared services.
 
 ```bash
-COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml:docker-compose.worker-only.yml
-COMPOSE_PROFILES=mineru-gpu-0,mineru-gpu-1
+MINERU_GPU_WORKER_ONLY=1 sh gpu-up.sh
 ```
 
 See [Large-scale multi-node](../docs/PRODUCTION_MULTI_NODE.md).
+
+**ThinkExtract:** this script does not configure it. Set `INGESTION_MINERU_MAX_INFLIGHT` to the worker total, or a little higher, and run more backfill workers than that inflight limit. If inflight is the only submitter, the queue stays empty while ThinkExtract does post-parse work and the GPUs wait.
+
+`docker-compose.multi-gpu.yml` is the older one-container-per-card template (`mineru-gpu-0` … `mineru-gpu-7`). New deployments should use `gpu-up.sh`.
 
 **Manual Profile Selection** (command line, not recommended):
 
@@ -140,9 +145,8 @@ See [Large-scale multi-node](../docs/PRODUCTION_MULTI_NODE.md).
 # Start with GPU Worker and internal Redis (default)
 cd docker && docker compose --profile redis --profile mineru-gpu up -d
 
-# Multi-GPU example (2 cards)
-cd docker && docker compose -f docker-compose.yml -f docker-compose.multi-gpu.yml \
-  --profile redis --profile mineru-gpu-0 --profile mineru-gpu-1 up -d
+# Multi-GPU (preferred)
+cd docker && sh gpu-up.sh
 
 # Start with CPU Worker and internal Redis
 cd docker && docker compose --profile redis --profile mineru-cpu up -d

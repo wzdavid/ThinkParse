@@ -164,7 +164,7 @@ See [API Examples](docs/API_EXAMPLES.md) for Python, JavaScript, batch processin
 
 - **CPU:** `COMPOSE_PROFILES=redis,mineru-cpu`
 - **Single GPU:** `COMPOSE_PROFILES=redis,mineru-gpu`
-- **Multiple GPUs:** use `docker-compose.multi-gpu.yml` to bind one worker to each GPU
+- **Multiple GPUs:** `cd docker && sh gpu-up.sh` (`MINERU_GPU_COUNT`, `MINERU_WORKERS_PER_GPU`)
 
 ### Distributed deployment
 
@@ -175,7 +175,7 @@ Use shared Redis and S3-compatible storage, then run API and worker services on 
 - Set `ENVIRONMENT=production` and restrict `CORS_ALLOWED_ORIGINS`.
 - Protect Redis with authentication and keep its persistence data on a disk separate from parsing output.
 - Use S3-compatible storage when workers do not share a filesystem.
-- Keep one active MinerU task per GPU; scale by adding workers rather than increasing per-GPU concurrency.
+- Keep one active MinerU task per worker process (`GPU_WORKER_CONCURRENCY=1`); scale with `sh gpu-up.sh` and `MINERU_WORKERS_PER_GPU`.
 - Restrict `/api/v1/health/deep` to operators because it exposes detailed runtime diagnostics.
 
 ## Health and operations

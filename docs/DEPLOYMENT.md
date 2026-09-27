@@ -6,7 +6,7 @@ This document provides detailed instructions on how to deploy ThinkParse in prod
 
 - [Docker Deployment](#docker-deployment)
 - [Production Configuration](#production-configuration)
-- [Version 1.4.0 Trial Rollout](#version-140-trial-rollout)
+- [Version 1.4.1 Trial Rollout](#version-141-trial-rollout)
 - [Scaling and Optimization](#scaling-and-optimization)
 - [Monitoring and Logging](#monitoring-and-logging)
 - [Large-scale multi-node](PRODUCTION_MULTI_NODE.md) — S3 + shared Redis + multi-GPU hosts
@@ -32,20 +32,20 @@ cd docker && docker compose --profile mineru-cpu up -d
 cd docker && docker compose --profile mineru-gpu up -d
 ```
 
-**Multi-GPU (one worker per card)**: default `mineru-gpu` is a single worker (usually `cuda:0` only). Use the override template:
+**Multi-GPU**: default `mineru-gpu` is a single worker (usually `cuda:0` only). Generate one container per engine:
 
 ```bash
 # docker/.env
-COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml
-COMPOSE_PROFILES=redis,mineru-gpu-0,mineru-gpu-1
+MINERU_GPU_COUNT=2
+MINERU_WORKERS_PER_GPU=4
 GPU_WORKER_CONCURRENCY=1
 ```
 
 ```bash
-cd docker && docker compose up -d
+cd docker && sh gpu-up.sh
 ```
 
-Do not enable `mineru-gpu` together with `mineru-gpu-N`. Details: [docker/README.md](../docker/README.md#multi-gpu-one-worker-per-card).
+Keep `GPU_WORKER_CONCURRENCY=1`. Do not also enable profile `mineru-gpu`. Details: [docker/README.md](../docker/README.md#multi-gpu-workers).
 
 **Tianhe / single-container schedulers**: do not split Redis, API, Worker, and Cleanup. Build `mineru-allinone` and submit that one image. See [Single-container deployment](DEPLOYMENT_ALLINONE.md).
 
@@ -153,10 +153,12 @@ GPU_METRICS_INTERVAL_SECONDS=30
 WORKER_MAX_MEMORY_PER_CHILD=2000000  # 2GB
 ```
 
-Do not scale a single GPU by raising `WORKER_CONCURRENCY`; concurrent parses
-compete for the same device. Add GPU workers instead. Legacy ThinkParse
-physical splitting can lose cross-page context and introduce chunk/merge
-scheduling stalls, so it remains an explicit compatibility fallback only.
+Do not scale a single process by raising `WORKER_CONCURRENCY` or
+`GPU_WORKER_CONCURRENCY`. One process holds a MinerU engine lock, so a higher
+value does not run two GPU parses. Add containers with `MINERU_WORKERS_PER_GPU`
+(`sh gpu-up.sh`). Legacy ThinkParse physical splitting can lose cross-page
+context and introduce chunk/merge scheduling stalls, so it remains an explicit
+compatibility fallback only.
 
 Keep `WORKER_WATCHDOG_TIMEOUT_SECONDS` greater than
 `MINERU_ENGINE_TIMEOUT_SECONDS`, and keep
@@ -166,9 +168,9 @@ must be greater again so cancellation survives any redelivery. Downstream
 request timeouts should include enough additional margin for the engine to
 report its terminal state.
 
-## Version 1.4.0 Trial Rollout
+## Version 1.4.1 Trial Rollout
 
-Version 1.4.0 is suitable for a controlled server trial. Before deployment:
+Version 1.4.1 is suitable for a controlled server trial. Before deployment:
 
 1. Back up the current `.env`, Redis persistence data, and output storage.
 2. Compare the existing `.env` with `.env.example`; repository updates do not
@@ -179,7 +181,12 @@ Version 1.4.0 is suitable for a controlled server trial. Before deployment:
 4. Restrict `/api/v1/health/deep` to operators.
 5. Validate the rendered configuration:
    ```bash
+   # Single GPU:
    cd docker && docker compose --profile mineru-gpu config --quiet
+   # Multi-GPU:
+   cd docker && sh gpu-up.sh --render-only && \
+     docker compose -f docker-compose.yml -f docker-compose.gpus.yml \
+       --profile redis --profile mineru-multi-gpu config --quiet
    ```
 
 Build and start the trial:
@@ -187,7 +194,10 @@ Build and start the trial:
 ```bash
 cd docker
 sh build.sh --api --worker-gpu --cleanup --rebuild-base
+# Single GPU:
 docker compose --profile redis --profile mineru-gpu up -d
+# Multi-GPU (set MINERU_GPU_COUNT / MINERU_WORKERS_PER_GPU in docker/.env):
+sh gpu-up.sh
 ```
 
 For schedulers that accept only one container, build the all-in-one image instead; see [Single-container deployment](DEPLOYMENT_ALLINONE.md):
@@ -200,7 +210,7 @@ sh build.sh --allinone
 Acceptance checks:
 
 1. `/health/live` and `/health/ready` return HTTP 200.
-2. `/health/deep` reports version `1.4.0`, available Redis/storage/Worker
+2. `/health/deep` reports version `1.4.1`, available Redis/storage/Worker
    components, a recent Worker heartbeat, and expected GPU/engine state.
 3. A first parse completes after model initialization; a second parse confirms
    engine reuse.

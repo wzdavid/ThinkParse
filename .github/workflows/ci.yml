@@ -48,6 +48,9 @@ jobs:
       - name: Validate all-in-one deploy files
         run: python3 -m unittest discover -s tests -p 'test_allinone_deploy.py'
 
+      - name: Validate multi-GPU worker render
+        run: python3 -m unittest discover -s tests -p 'test_render_gpu_workers.py'
+
       - name: Build API image
         uses: docker/build-push-action@v5
         with:

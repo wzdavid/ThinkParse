@@ -164,7 +164,7 @@ Python、JavaScript、批处理、优先级和错误处理示例请参阅 [API �
 
 - **CPU：** `COMPOSE_PROFILES=redis,mineru-cpu`
 - **单 GPU：** `COMPOSE_PROFILES=redis,mineru-gpu`
-- **多 GPU：** 使用 `docker-compose.multi-gpu.yml`，将每个 Worker 绑定到一张 GPU
+- **多 GPU：** `cd docker && sh gpu-up.sh`（`MINERU_GPU_COUNT`、`MINERU_WORKERS_PER_GPU`）
 
 ### 分布式部署
 
@@ -175,7 +175,7 @@ Python、JavaScript、批处理、优先级和错误处理示例请参阅 [API �
 - 设置 `ENVIRONMENT=production` 并限制 `CORS_ALLOWED_ORIGINS`。
 - 为 Redis 启用身份验证，并将其持久化数据与解析输出存放在不同磁盘。
 - Worker 不共享文件系统时，请使用 S3 兼容存储。
-- 每张 GPU 保持一个活跃 MinerU 任务；通过增加 Worker 扩容，而不是提高单卡并发。
+- 每个 Worker 进程保持一个活跃 MinerU 任务（`GPU_WORKER_CONCURRENCY=1`）；用 `sh gpu-up.sh` 和 `MINERU_WORKERS_PER_GPU` 扩容。
 - `/api/v1/health/deep` 会暴露详细运行信息，应仅对运维人员开放。
 
 ## 健康检查与运维

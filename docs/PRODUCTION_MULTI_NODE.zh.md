@@ -1,7 +1,7 @@
 # 大规模生产部署：多机多 Worker
 
 面向多台服务器、多 GPU Worker 的 ThinkParse / MinerU API 部署方案。  
-单机起步见 [DEPLOYMENT.zh.md](DEPLOYMENT.zh.md)；单机多卡见 [docker-compose.multi-gpu.yml](../docker/docker-compose.multi-gpu.yml)。
+单机起步见 [DEPLOYMENT.zh.md](DEPLOYMENT.zh.md)。多卡 Worker：`cd docker && sh gpu-up.sh`。
 
 ## 1. 推荐架构
 
@@ -12,7 +12,7 @@
 | **对象存储 S3/MinIO** | 独立集群或托管 | 上传与解析结果的唯一共享介质 |
 | **Redis** | 独立节点 / 云 Redis | Celery 队列 + 轻量任务元数据（正文不进 Redis） |
 | **API** | ≥1 台，可水平扩展 | 只负责提交任务、查询状态；无状态（状态在 Redis，正文在 S3） |
-| **GPU Worker** | 每台 GPU 机器 1～N 个容器 | 一卡一 worker；订阅同一队列 |
+| **GPU Worker** | 每台 GPU 机器 1～N 个容器 | 每卡 `MINERU_WORKERS_PER_GPU` 个引擎；订阅同一队列 |
 | **Cleanup** | 1 个即可 | 主要清 output（temp 靠 S3 lifecycle） |
 
 ```mermaid
@@ -66,8 +66,8 @@ flowchart TB
 
 吞吐粗算（因模型与页数差异大，仅作起点）：
 
-- 每卡并发建议 `GPU_WORKER_CONCURRENCY=1`（显存紧张时务必为 1）  
-- 扩容优先 **加 GPU 节点 / 加卡对应的 worker**，而不是盲目提高单卡 concurrency  
+- 每个进程保持 `GPU_WORKER_CONCURRENCY=1`（一个进程不会并行解析）  
+- 扩容优先 **加 GPU 节点**，或提高 `MINERU_WORKERS_PER_GPU` 后再跑 `sh gpu-up.sh`；显存紧张时减少每卡进程数  
 
 ## 3. 配置原则（所有节点共用）
 
@@ -142,13 +142,14 @@ cd docker && docker compose up -d mineru-api mineru-cleanup
 
 专用 GPU 机不要用「裸」`docker compose up -d`：`mineru-api` / `mineru-cleanup` **没有 profile，会默认一起起来**，造成多余 API 与重复 cleanup。
 
-请加上 **worker-only** 覆盖层 + 多卡模板（**不要**开 `mineru-gpu`）：
+用 `gpu-up.sh` 加上 worker-only（**不要**开 `mineru-gpu`）：
 
 ```bash
 # docker/.env
-COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml:docker-compose.worker-only.yml
-COMPOSE_PROFILES=mineru-gpu-0,mineru-gpu-1
+MINERU_GPU_COUNT=2
+MINERU_WORKERS_PER_GPU=4
 GPU_WORKER_CONCURRENCY=1
+MINERU_GPU_WORKER_ONLY=1
 ```
 
 ```bash
@@ -160,21 +161,20 @@ WORKER_POOL=threads
 ```
 
 ```bash
-cd docker && docker compose up -d
+cd docker && sh gpu-up.sh
 # 此时应只有 mineru-worker-gpu-* ，没有 api/cleanup
-docker compose ps
+docker compose -f docker-compose.yml -f docker-compose.gpus.yml \
+  -f docker-compose.worker-only.yml --profile mineru-multi-gpu ps
 ```
 
-第二台 GPU 机器同样配置，按本机卡启用 `mineru-gpu-N`；**队列名与 Redis/S3 必须相同**。
+第二台 GPU 机器同样用 `sh gpu-up.sh`，按本机卡数填写 `MINERU_GPU_COUNT`；**队列名与 Redis/S3 必须相同**。
 
-单机同时跑 Redis+API+多卡 Worker 时：不要加 `worker-only.yml`，用  
-`COMPOSE_FILE=docker-compose.yml:docker-compose.multi-gpu.yml` 且  
-`COMPOSE_PROFILES=redis,mineru-gpu-0,mineru-gpu-1`。
+单机同时跑 Redis+API+多卡 Worker 时：不要设 `MINERU_GPU_WORKER_ONLY`，直接 `sh gpu-up.sh`。旧文件 `docker-compose.multi-gpu.yml` 的 `mineru-gpu-0,mineru-gpu-1` 仍可用，但不要和生成的 Worker 一起跑。
 
 验证：
 
 ```bash
-docker exec mineru-worker-gpu-0 nvidia-smi -L   # 应只有一张可见卡
+docker exec mineru-worker-gpu-0-0 nvidia-smi -L   # 应只有一张可见卡，容器内显示为 GPU 0
 curl http://api.internal:8000/api/v1/queue/stats
 ```
 
@@ -189,7 +189,7 @@ curl http://api.internal:8000/api/v1/queue/stats
 
 | 动作 | 做法 |
 |------|------|
-| 提高吞吐 | 加 GPU 节点，或在已有节点启用更多 `mineru-gpu-N` |
+| 提高吞吐 | 加 GPU 节点，或提高 `MINERU_WORKERS_PER_GPU` 后重新 `sh gpu-up.sh` |
 | API 高峰 | 加 API 副本 + LB |
 | Redis 压力 | 已实现「结果瘦身」；仍紧则升配内存、缩短 `RESULT_EXPIRES` |
 | 磁盘打满 | 文件在 S3；仍要保证 Redis 独立盘、lifecycle、cleanup 在跑 |
@@ -210,7 +210,7 @@ curl http://api.internal:8000/api/v1/queue/stats
 - [ ] temp bucket 已配 lifecycle  
 - [ ] 全部节点同一 `REDIS_URL` / 同一 `MINERU_QUEUE`  
 - [ ] Redis 独立磁盘 + 密码；AOF 与文件存储分盘  
-- [ ] GPU：一卡一 worker，`GPU_WORKER_CONCURRENCY=1`（确认后再调）  
+- [ ] GPU：`sh gpu-up.sh`，`GPU_WORKER_CONCURRENCY=1`，按显存设置 `MINERU_WORKERS_PER_GPU`  
 - [ ] 全局仅 **一个** cleanup  
 - [ ] API ≥2 + LB（需要 HA 时）  
 - [ ] 不用 `/file_parse` 做分布式生产流量  

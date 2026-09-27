@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-27
+
+Productized multi-GPU and multi-worker deployment. Operators set card count and
+workers per card; Compose service blocks no longer need to be copied by hand.
+
+### Added
+- `docker/gpu-up.sh` and `docker/render-gpu-workers.py` generate
+  `docker-compose.gpus.yml` from `MINERU_GPU_COUNT` and `MINERU_WORKERS_PER_GPU`
+- Profile `mineru-multi-gpu` starts every generated worker; optional
+  `MINERU_GPU_WORKER_ONLY=1` for dedicated GPU hosts
+- CI check that validates the renderer and `gpu-up.sh` shell syntax
+
+### Changed
+- Document `GPU_WORKER_CONCURRENCY=1` as per-process; scale with more containers
+  on the same card rather than raising Celery concurrency
+- Point deployment docs at `sh gpu-up.sh`; keep `docker-compose.multi-gpu.yml`
+  as the legacy one-container-per-card template
+
+### Fixed
+- Stop stale GPU worker containers (legacy names and extra slots after shrinking
+  `MINERU_WORKERS_PER_GPU`) before starting the generated set, after validating
+  Compose and confirming `mineru-worker:latest` exists
+
 ## [1.4.0] - 2026-09-11
 
 Single-container deployment for schedulers that accept only one container
@@ -172,6 +195,7 @@ Upgrade the parsing engine to **MinerU 3.4.0** and rebrand the project as **Thin
 
 ## Version History
 
+- **1.4.1**: Productized multi-GPU workers via `gpu-up.sh` (`MINERU_GPU_COUNT` × `MINERU_WORKERS_PER_GPU`)
 - **1.4.0**: Single-container GPU/CPU images for Tianhe/HPC; four-container Compose remains default
 - **1.3.0**: MinerU 3.4.5, cancellable engine isolation, native long-document windows, and layered health diagnostics
 - **1.2.0**: Slim Redis results (hydrate from storage); Redis/temp disk isolation; faster temp cleanup; multi-GPU and multi-node deploy templates
