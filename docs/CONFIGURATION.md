@@ -112,9 +112,19 @@ explicit compatibility fallback.
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `CLEANUP_INTERVAL_HOURS` | Cleanup interval (hours) | `6` | `12` |
-| `CLEANUP_EXTRA_HOURS` | Extra retention time for outputs (hours) | `2` | `4` |
+| `CLEANUP_INTERVAL_HOURS` | Cleanup interval (hours). The scheduler also runs once as soon as it starts | `6` | `12` |
+| `CLEANUP_EXTRA_HOURS` | Extra retention time for outputs (hours), added to `RESULT_EXPIRES` | `2` | `4` |
 | `TEMP_MAX_AGE_HOURS` | Local `TEMP_DIR` orphan max age (hours); keep above `TASK_TIME_LIMIT` | `6` | `4` |
+| `DISK_FREE_MIN_BYTES` | Refuse new tasks when free space on the data filesystem is below this many bytes | `8589934592` (8 GiB) | `4294967296` |
+| `DISK_FREE_MIN_PERCENT` | Cap the refuse reserve at this percent of the filesystem. `0` disables the cap | `10` | `5` |
+| `DISK_FREE_TARGET_BYTES` | Delete the oldest eligible results until at least this many bytes are free | `17179869184` (16 GiB) | `8589934592` |
+| `DISK_FREE_TARGET_PERCENT` | Cap the reclaim target at this percent of the filesystem. `0` disables the cap | `20` | `15` |
+| `DISK_PRESSURE_MIN_AGE_HOURS` | Under disk pressure, do not delete data newer than this. Keep above `TASK_TIME_LIMIT` | `3` | `4` |
+| `DISK_CHECK_INTERVAL_MINUTES` | How often to apply the disk watermarks | `1` | `5` |
+
+Output directories are removed when their modification time is older than `RESULT_EXPIRES` + `CLEANUP_EXTRA_HOURS`. With the defaults that is 24 hours + 2 hours. To keep outputs for about 12 hours, set `RESULT_EXPIRES=43200` and `CLEANUP_EXTRA_HOURS=0`. For about 8 hours, set `RESULT_EXPIRES=28800` and `CLEANUP_EXTRA_HOURS=0`. `RESULT_EXPIRES` must stay greater than `BROKER_VISIBILITY_TIMEOUT_SECONDS`.
+
+Disk watermarks use free bytes, not a fixed used-percent of one machine. The refuse line is `min(DISK_FREE_MIN_BYTES, filesystem size × DISK_FREE_MIN_PERCENT / 100)`. The reclaim line is the same formula with the target settings, and is never lower than the refuse line. On a large disk the 8 GiB / 16 GiB reserves apply. On a 20 GiB disk the 10% / 20% caps apply instead, so the process does not demand 16 GiB free. While free space is under the reclaim line, the oldest entries older than `max(DISK_PRESSURE_MIN_AGE_HOURS, TASK_TIME_LIMIT)` are deleted, new submissions receive HTTP 507, and queued tasks wait. That leaves the reclaim reserve for parses already running and for Redis. `/health/ready` reports storage unavailable in that state. Liveness does not, so the API process is not restarted for a full disk. The disk check runs as soon as the cleanup process starts, and again on `DISK_CHECK_INTERVAL_MINUTES`, including when `CLEANUP_INTERVAL_HOURS` is long.
 
 ## Configuration Examples
 

@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from typing import Any, Callable
 from redis import Redis
 
 from shared import celeryconfig
+from shared.disk_space import decide, load_policy
 from shared.storage import OUTPUT_DIR, STORAGE_TYPE, TEMP_DIR, get_storage
 
 WORKER_HEARTBEAT_PREFIX = "thinkparse:worker:"
@@ -185,6 +187,22 @@ def collect_worker_snapshot(celery_app: Any, timeout: float = 1.0) -> dict[str, 
     }
 
 
+def _path_capacity(raw_path: str, policy: Any) -> dict[str, Any]:
+    path = Path(raw_path)
+    usage = shutil.disk_usage(path)
+    decision = decide(usage.total, usage.free, policy)
+    return {
+        "path": str(path),
+        "writable": os.access(path, os.W_OK),
+        "free_bytes": usage.free,
+        "total_bytes": usage.total,
+        "used_percent": decision.used_percent,
+        "state": decision.state,
+        "reject_below_bytes": decision.reject_below_bytes,
+        "reclaim_below_bytes": decision.reclaim_below_bytes,
+    }
+
+
 def collect_storage_snapshot() -> dict[str, Any]:
     """Check storage initialization and local capacity without writing data."""
     storage = get_storage()
@@ -192,21 +210,23 @@ def collect_storage_snapshot() -> dict[str, Any]:
         "available": True,
         "type": storage.storage_type,
     }
+    policy = load_policy()
     if STORAGE_TYPE != "local":
-        return storage.health_check()
+        snapshot = storage.health_check()
+        try:
+            temp_capacity = _path_capacity(tempfile.gettempdir(), policy)
+        except OSError:
+            temp_capacity = None
+        if temp_capacity is not None:
+            snapshot["paths"] = {"temp": temp_capacity}
+            if temp_capacity["state"] != "ok":
+                snapshot["available"] = False
+        return snapshot
 
     paths = {}
     for name, raw_path in (("temp", TEMP_DIR), ("output", OUTPUT_DIR)):
-        path = Path(raw_path)
-        usage = shutil.disk_usage(path)
-        paths[name] = {
-            "path": str(path),
-            "writable": os.access(path, os.W_OK),
-            "free_bytes": usage.free,
-            "total_bytes": usage.total,
-            "used_percent": round((usage.used / usage.total) * 100, 2) if usage.total else 0,
-        }
-        if not paths[name]["writable"]:
+        paths[name] = _path_capacity(raw_path, policy)
+        if not paths[name]["writable"] or paths[name]["state"] != "ok":
             snapshot["available"] = False
     snapshot["paths"] = paths
     return snapshot

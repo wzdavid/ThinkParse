@@ -33,6 +33,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from shared import celeryconfig
+from shared.disk_space import StorageCapacityExceeded, raise_if_storage_full
 from shared.observability import (
     collect_redis_snapshot,
     collect_storage_snapshot,
@@ -43,7 +44,7 @@ from shared.observability import (
 from shared.storage import get_storage
 from shared.task_result import apply_status_payload, hydrate_celery_result
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 
 # Create FastAPI application
 app = FastAPI(
@@ -150,6 +151,11 @@ def summarize_health_components(components: dict[str, Any]) -> dict[str, Any]:
             "max_used_percent": max(
                 (path.get("used_percent", 0) for path in storage_paths),
                 default=None,
+            ),
+            "disk_state": max(
+                (path.get("state", "ok") for path in storage_paths),
+                key=lambda state: {"ok": 0, "reclaim": 1, "reject": 2}.get(state, 0),
+                default="ok",
             ),
         },
         "workers": {
@@ -272,6 +278,7 @@ async def submit_task(
 ):
     """Submit a parsing task; MinerU handles long PDFs with bounded windows."""
     try:
+        raise_if_storage_full()
         storage = get_storage()
         
         # File size limit (default: 100MB)
@@ -343,6 +350,8 @@ async def submit_task(
 
     except HTTPException:
         raise
+    except StorageCapacityExceeded as exc:
+        raise HTTPException(status_code=507, detail=str(exc)) from exc
     except Exception as exc:
         logger.error(f"❌ Failed to submit task: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -373,6 +382,7 @@ async def parse_pdf(
     Worker handles all splitting and merging logic - API layer just submits and collects results.
     """
     try:
+        raise_if_storage_full()
 
         # Create unique output directory
         unique_dir = os.path.join(output_dir, str(datetime.now().strftime('%Y%m%d_%H%M%S_%f')))
@@ -662,6 +672,8 @@ async def parse_pdf(
                 }
             )
 
+    except StorageCapacityExceeded as exc:
+        return JSONResponse(status_code=507, content={"error": str(exc)})
     except Exception as e:
         logger.exception(e)
         return JSONResponse(

@@ -6,7 +6,7 @@ This document provides detailed instructions on how to deploy ThinkParse in prod
 
 - [Docker Deployment](#docker-deployment)
 - [Production Configuration](#production-configuration)
-- [Version 1.4.1 Trial Rollout](#version-141-trial-rollout)
+- [Version 1.4.2 Trial Rollout](#version-142-trial-rollout)
 - [Scaling and Optimization](#scaling-and-optimization)
 - [Monitoring and Logging](#monitoring-and-logging)
 - [Large-scale multi-node](PRODUCTION_MULTI_NODE.md) — S3 + shared Redis + multi-GPU hosts
@@ -168,9 +168,9 @@ must be greater again so cancellation survives any redelivery. Downstream
 request timeouts should include enough additional margin for the engine to
 report its terminal state.
 
-## Version 1.4.1 Trial Rollout
+## Version 1.4.2 Trial Rollout
 
-Version 1.4.1 is suitable for a controlled server trial. Before deployment:
+Version 1.4.2 is suitable for a controlled server trial. Before deployment:
 
 1. Back up the current `.env`, Redis persistence data, and output storage.
 2. Compare the existing `.env` with `.env.example`; repository updates do not
@@ -210,7 +210,7 @@ sh build.sh --allinone
 Acceptance checks:
 
 1. `/health/live` and `/health/ready` return HTTP 200.
-2. `/health/deep` reports version `1.4.1`, available Redis/storage/Worker
+2. `/health/deep` reports version `1.4.2`, available Redis/storage/Worker
    components, a recent Worker heartbeat, and expected GPU/engine state.
 3. A first parse completes after model initialization; a second parse confirms
    engine reuse.

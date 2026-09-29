@@ -29,6 +29,8 @@ except ImportError:
 import argparse
 import subprocess
 
+from shared.disk_space import load_policy
+
 
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name)
@@ -67,6 +69,7 @@ class CleanupScheduler:
         self.cleanup_hours = cleanup_hours
         self.extra_hours = extra_hours
         self.temp_max_age_hours = temp_max_age_hours
+        self.disk_check_minutes = load_policy().check_interval_minutes
         self.running = True
         
         # Register signal handlers
@@ -102,6 +105,9 @@ class CleanupScheduler:
     
     def _run_cleanup(self):
         """Execute cleanup task"""
+        # Free headroom before a long age sweep so a full disk is not stuck
+        # listing expired directories while Redis still cannot write.
+        self._run_disk_guard()
         print(f"\n{'='*60}")
         print(f"Executing scheduled cleanup task - {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*60}")
@@ -121,24 +127,61 @@ class CleanupScheduler:
                 print(f"Cleanup task execution failed, exit code: {result.returncode}")
         except Exception as e:
             print(f"Cleanup task execution failed: {e}")
-    
-    def start(self):
-        """Start scheduler"""
-        # Set scheduled task
-        schedule.every(self.cleanup_hours).hours.do(self._run_cleanup)
-        
-        # Execute once immediately (optional)
-        print(f"Cleanup scheduler started")
+
+    def _run_disk_guard(self):
+        """Delete oldest local data when free space is under the watermark."""
+        try:
+            from cleanup.disk_guard import reclaim_under_pressure
+        except ImportError:
+            from disk_guard import reclaim_under_pressure
+
+        print(f"\n{'='*60}")
+        print(f"Checking disk headroom - {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'='*60}")
+        try:
+            deleted = reclaim_under_pressure()
+            print(f"Disk headroom check done, deleted {deleted} entries")
+        except Exception as e:
+            print(f"Disk headroom check failed: {e}")
+
+    def install_schedule(self):
+        """Run one cleanup immediately, then schedule age and disk checks."""
+        policy = load_policy()
+        self.disk_check_minutes = policy.check_interval_minutes
+        print("Cleanup scheduler started")
         print(f"Cleanup interval: every {self.cleanup_hours} hours")
         print(f"Extra retention time (outputs): {self.extra_hours} hours")
         print(f"Temp file max age: {self.temp_max_age_hours} hours")
-        print(f"First cleanup will execute in {self.cleanup_hours} hours")
+        print(
+            "Disk watermarks: refuse below "
+            f"{policy.free_min_bytes / (1024 ** 3):.0f} GiB "
+            f"(capped at {policy.free_min_percent:g}% of the filesystem), "
+            "reclaim below "
+            f"{policy.free_target_bytes / (1024 ** 3):.0f} GiB "
+            f"(capped at {policy.free_target_percent:g}%)"
+        )
+        print(f"Disk check interval: every {self.disk_check_minutes} minutes")
+        print(
+            "Pressure deletion skips data newer than "
+            f"{policy.min_age_seconds / 3600:.1f} hours"
+        )
+        self._run_disk_guard()
+        self._run_cleanup()
+        schedule.every(self.cleanup_hours).hours.do(self._run_cleanup)
+
+    def start(self):
+        """Start scheduler"""
+        self.install_schedule()
         print("Press Ctrl+C to stop scheduler\n")
-        
-        # Main loop
+
+        next_disk_check = time.monotonic()
         while self.running:
+            now = time.monotonic()
+            if now >= next_disk_check:
+                self._run_disk_guard()
+                next_disk_check = now + (self.disk_check_minutes * 60)
             schedule.run_pending()
-            time.sleep(60)  # Check every minute
+            time.sleep(5)
         
         print("\nScheduler stopped")
 
@@ -182,6 +225,7 @@ def main():
             extra_hours=args.extra_hours,
             temp_max_age_hours=args.temp_max_age,
         )
+        scheduler._run_disk_guard()
         cmd = scheduler._build_cleanup_cmd()
         
         try:

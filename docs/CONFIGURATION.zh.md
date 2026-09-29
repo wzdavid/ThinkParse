@@ -111,9 +111,19 @@ chunk/merge 调度阻塞。旧版拆分仅用于明确的兼容回退。
 
 | 变量名 | 说明 | 默认值 | 示例 |
 |--------|------|--------|------|
-| `CLEANUP_INTERVAL_HOURS` | 清理间隔（小时） | `6` | `12` |
-| `CLEANUP_EXTRA_HOURS` | 输出文件额外保留时间（小时） | `2` | `4` |
+| `CLEANUP_INTERVAL_HOURS` | 清理间隔（小时）。调度器启动后会立刻先跑一轮 | `6` | `12` |
+| `CLEANUP_EXTRA_HOURS` | 输出文件额外保留时间（小时），加在 `RESULT_EXPIRES` 之上 | `2` | `4` |
 | `TEMP_MAX_AGE_HOURS` | 本地 `TEMP_DIR` 孤儿文件最长保留（小时）；需大于 `TASK_TIME_LIMIT` | `6` | `4` |
+| `DISK_FREE_MIN_BYTES` | 数据盘剩余空间低于该字节数时拒绝新任务 | `8589934592`（8 GiB） | `4294967296` |
+| `DISK_FREE_MIN_PERCENT` | 拒绝线不超过文件系统容量的这个百分比。`0` 表示不封顶 | `10` | `5` |
+| `DISK_FREE_TARGET_BYTES` | 剩余空间低于该字节数时，从最旧的结果开始删，直到恢复到这条线 | `17179869184`（16 GiB） | `8589934592` |
+| `DISK_FREE_TARGET_PERCENT` | 回收目标不超过文件系统容量的这个百分比。`0` 表示不封顶 | `20` | `15` |
+| `DISK_PRESSURE_MIN_AGE_HOURS` | 磁盘紧张时，新于这个小时数的数据不删。需大于 `TASK_TIME_LIMIT` | `3` | `4` |
+| `DISK_CHECK_INTERVAL_MINUTES` | 检查磁盘水位的间隔（分钟） | `1` | `5` |
+
+输出目录在修改时间早于 `RESULT_EXPIRES` + `CLEANUP_EXTRA_HOURS` 时删除。默认是 24 小时再加 2 小时。若希望结果大约保留 12 小时，设置 `RESULT_EXPIRES=43200` 且 `CLEANUP_EXTRA_HOURS=0`。大约保留 8 小时则设置 `RESULT_EXPIRES=28800` 且 `CLEANUP_EXTRA_HOURS=0`。`RESULT_EXPIRES` 必须大于 `BROKER_VISIBILITY_TIMEOUT_SECONDS`。
+
+磁盘水位按剩余字节计算，不按某一台机器的已用百分比。拒绝线是 `min(DISK_FREE_MIN_BYTES, 文件系统容量 × DISK_FREE_MIN_PERCENT / 100)`。回收线用目标值做同样的计算，并且不会低于拒绝线。大盘用 8 GiB / 16 GiB；20 GiB 的小盘会被 10% / 20% 封顶，不会要求留出 16 GiB。剩余空间低于回收线时，删除早于 `max(DISK_PRESSURE_MIN_AGE_HOURS, TASK_TIME_LIMIT)` 的最旧条目，新提交返回 HTTP 507，已经排队的任务会等待。回收线以上的剩余空间留给正在进行的解析和 Redis。此时 `/health/ready` 把存储标为不可用；存活检查不看磁盘，避免 API 进程因为盘满被反复重启。清理进程一开始就会做磁盘检查，之后按 `DISK_CHECK_INTERVAL_MINUTES` 重复，即使 `CLEANUP_INTERVAL_HOURS` 设得很长也一样。
 
 ## 配置示例
 

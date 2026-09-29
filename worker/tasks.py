@@ -25,6 +25,7 @@ sys.path.insert(0, str(project_root))
 from celery import Celery, states
 from celery.utils.log import get_task_logger
 from shared import celeryconfig
+from shared.disk_space import StorageCapacityExceeded, raise_if_storage_full
 from shared.storage import get_storage
 from shared.observability import (
     TaskCancellationProbe,
@@ -461,6 +462,12 @@ def parse_document_task(
         options = {}
     
     task_id = self.request.id
+    try:
+        raise_if_storage_full()
+    except StorageCapacityExceeded as exc:
+        logger.warning("Delaying task %s until disk headroom recovers: %s", task_id, exc)
+        raise self.retry(countdown=60, max_retries=1440, exc=exc)
+
     if is_task_cancellation_requested(task_id):
         logger.warning(f"🛑 Task {task_id} was cancelled before processing started")
         return {

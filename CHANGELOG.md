@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-09-29
+
+Stop local parse storage from filling the disk and halting Redis.
+
+### Added
+- Free-space watermarks for the filesystem that holds temp and output data.
+  Defaults keep an absolute reserve (16 GiB reclaim, 8 GiB floor), capped to a
+  percentage of small disks
+- Cleanup runs as soon as the process starts, then checks disk headroom on
+  `DISK_CHECK_INTERVAL_MINUTES` even when `CLEANUP_INTERVAL_HOURS` is long
+- New submissions return HTTP 507, and queued tasks wait, while free space is
+  under the reclaim line. `/health/ready` reports storage unavailable; liveness
+  does not restart the API for a full disk
+
+### Fixed
+- The scheduler no longer waits a full cleanup interval before the first deletion
+- Pressure deletion skips symlinks and paths outside the configured directories,
+  and never removes data younger than `TASK_TIME_LIMIT`
+
 ## [1.4.1] - 2026-09-27
 
 Productized multi-GPU and multi-worker deployment. Operators set card count and
@@ -195,6 +214,7 @@ Upgrade the parsing engine to **MinerU 3.4.0** and rebrand the project as **Thin
 
 ## Version History
 
+- **1.4.2**: Disk headroom watermarks so local temp/output cannot fill the disk and stop Redis
 - **1.4.1**: Productized multi-GPU workers via `gpu-up.sh` (`MINERU_GPU_COUNT` × `MINERU_WORKERS_PER_GPU`)
 - **1.4.0**: Single-container GPU/CPU images for Tianhe/HPC; four-container Compose remains default
 - **1.3.0**: MinerU 3.4.5, cancellable engine isolation, native long-document windows, and layered health diagnostics
