@@ -134,7 +134,7 @@ Engine-native routes stay internal. See the [API reference](docs/api.zh.md).
 ## Development
 
 ```bash
-pip install -r control/requirements.txt
+pip install -r control/requirements-dev.txt
 PYTHONPATH=. python -m unittest discover -s tests -p 'test_control_*.py'
 ruff check control tests
 ```

@@ -136,7 +136,7 @@ curl -sS \
 ## 开发
 
 ```bash
-pip install -r control/requirements.txt
+pip install -r control/requirements-dev.txt
 PYTHONPATH=. python -m unittest discover -s tests -p 'test_control_*.py'
 ruff check control tests
 ```

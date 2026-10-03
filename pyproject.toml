@@ -30,3 +30,8 @@ Issues = "https://github.com/wzdavid/ThinkParse/issues"
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff.lint]
+# Ruff 0.16 expanded its default rule set. Keep the previous default so CI
+# stays on pyflakes and the pycodestyle errors this tree already satisfies.
+select = ["E4", "E7", "E9", "F"]
