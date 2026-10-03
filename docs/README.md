@@ -1,62 +1,26 @@
-# ThinkParse Documentation
+# ThinkParse documentation
 
-Welcome to the ThinkParse documentation. This documentation contains all detailed usage instructions and configuration options.
+ThinkParse is an open-source **enterprise document parsing system**: one production API, durable jobs, multi-GPU parallelism, and distributed deployment for large, reliable batch workloads.
 
-## Language
+## Start here
 
-- [English](README.md) (Current)
-- [中文](README.zh.md)
+| Doc | Description |
+|---|---|
+| [Overview](overview.zh.md) | Positioning, strengths, goals and non-goals |
+| [Quick start](quickstart.zh.md) | First successful parse |
+| [Deployment](deployment.zh.md) | CPU / GPU / external engines, acceptance |
 
-## Table of Contents
+## Reference
 
-- [Deployment Guide](DEPLOYMENT.md) - Production deployment instructions
-- [Large-scale multi-node](PRODUCTION_MULTI_NODE.md) - Multi-server + multi-GPU workers
-- [Single-container (Tianhe / HPC)](DEPLOYMENT_ALLINONE.md) - Redis+API+Worker+Cleanup in one container
-- [Configuration Reference](CONFIGURATION.md) - All environment variables and configuration options
-- [API Examples](API_EXAMPLES.md) - Code examples in multiple languages
-- [Troubleshooting](TROUBLESHOOTING.md) - Common issues and solutions
-- [Storage Configuration](S3_STORAGE.md) - S3 storage and cleanup configuration
-- [Cleanup Container](CLEANUP_CONTAINER.md) - Cleanup service usage guide
-- [S3 Lifecycle Setup](S3_LIFECYCLE_SETUP.md) - S3 lifecycle policy configuration
+| Doc | Description |
+|---|---|
+| [Architecture](architecture.zh.md) | System design, engines, data model |
+| [API](api.zh.md) | `/api/v1` and `/api/v2` |
+| [Operations](operations.zh.md) | Multi-GPU capacity, stats, batches |
+| [File cleanup](cleanup.zh.md) | Where uploads, scratch, and results live, and when they are deleted |
 
-## Quick Navigation
+Deep guides are currently in Chinese. Product entry points: English [README](../README.md) and Chinese [README.zh.md](../README.zh.md).
 
-### Getting Started
-1. Read the Quick Start section in the main README
-2. Check [API Examples](API_EXAMPLES.md) to learn how to use the API
-3. Refer to [Configuration Reference](CONFIGURATION.md) for basic configuration
+## Design notes
 
-### Production Deployment
-1. Read the [Deployment Guide](DEPLOYMENT.md)
-2. Multi-node workers: [Large-scale production](PRODUCTION_MULTI_NODE.md)
-3. Single-container schedulers (Tianhe): [Single-container deployment](DEPLOYMENT_ALLINONE.md)
-4. Configure [S3 Storage](S3_STORAGE.md) (recommended)
-5. Set up the [Cleanup Service](CLEANUP_CONTAINER.md)
-
-### Troubleshooting
-1. Check [Troubleshooting](TROUBLESHOOTING.md)
-2. Check log output
-3. View GitHub Issues
-
-## Architecture Overview
-
-### Components
-
-- **API Service** (`api/app.py`): Lightweight FastAPI service for task submission and status queries
-- **Worker Service** (`worker/tasks.py`): Celery Worker that executes document parsing tasks
-- **Redis**: Celery message broker and result backend
-- **Storage**: Supports local filesystem and S3-compatible storage
-
-### Workflow
-
-1. Client submits a document parsing task through the API
-2. API sends the task to the Celery queue
-3. Worker retrieves the task from the queue and executes parsing
-4. Parsing results are stored in the configured storage backend
-5. Client queries task status and results through the API
-
-## More Resources
-
-- [GitHub Repository](https://github.com/wzdavid/ThinkParse)
-- [Issue Tracker](https://github.com/wzdavid/ThinkParse/issues)
-- [Contributing Guide](../CONTRIBUTING.md)
+Earlier design drafts live under [`design/`](design/). Prefer the guides above for day-to-day use.

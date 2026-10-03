@@ -2,79 +2,44 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop, "release/**"]
   pull_request:
-    branches: [ main, develop ]
 
 jobs:
-  security:
-    name: Security Scan
+  test:
+    name: Control plane tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
-      
+          python-version: "3.12"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install safety pip-audit
-      
-      - name: Run Safety check
+          pip install -r control/requirements.txt ruff
+
+      - name: Test and lint
         run: |
-          safety check --file api/requirements.txt || true
-          safety check --file worker/requirements.txt || true
-          safety check --file cleanup/requirements.txt || true
-      
-      - name: Run pip-audit
-        run: |
-          pip-audit --requirement api/requirements.txt || true
-          pip-audit --requirement worker/requirements.txt || true
-          pip-audit --requirement cleanup/requirements.txt || true
+          PYTHONPATH=. python -m unittest discover -s tests -p 'test_control_*.py'
+          ruff check control tests
 
   docker-build:
-    name: Docker Build Test
+    name: Control plane image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
-      - name: Validate all-in-one deploy files
-        run: python3 -m unittest discover -s tests -p 'test_allinone_deploy.py'
 
-      - name: Validate multi-GPU worker render
-        run: python3 -m unittest discover -s tests -p 'test_render_gpu_workers.py'
-
-      - name: Build API image
+      - name: Build gateway image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./docker/Dockerfile.api
+          file: ./control/Dockerfile
           push: false
-          tags: mineru-api:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
-      
-      - name: Build Worker CPU image (skip model download for CI)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./docker/Dockerfile.worker.cpu
-          push: false
-          tags: mineru-worker-cpu:test
-          build-args: |
-            SKIP_MODEL_DOWNLOAD=true
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
-      
-      - name: Clean up Docker build cache
-        if: always()
-        run: |
-          # Clean up build cache to free space
-          docker builder prune -af || true
+          tags: thinkparse-control:test

@@ -1,0 +1,18 @@
+{
+  "schema": "docvortex.middle",
+  "pages": [
+    {
+      "page_idx": 0,
+      "page_size": [612, 792],
+      "blocks": [
+        {"type": "page_header", "text": "doi:10.1000/example", "bbox": [10, 10, 200, 30]},
+        {"type": "title", "text": "A Paper", "level": 1, "bbox": [10, 40, 400, 70]},
+        {"type": "text", "text": "Hello body", "bbox": [10, 80, 400, 100]},
+        {"type": "equation", "text": "E=mc^2", "bbox": [10, 110, 200, 140]},
+        {"type": "image", "img_path": "images/fig1.jpg", "bbox": [10, 150, 200, 300]},
+        {"type": "table", "table_body": "<table><tr><td>a</td></tr></table>", "bbox": [10, 310, 400, 400]},
+        {"type": "discarded", "text": "watermark", "bbox": [0, 0, 10, 10]}
+      ]
+    }
+  ]
+}

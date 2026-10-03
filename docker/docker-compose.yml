@@ -1,102 +1,159 @@
-name: mineru
+# ThinkParse. The gateway publishes 8000, which is the port ThinkExtract already uses.
+# Enable at most one engine profile: cpu or gpu. With neither, set MINERU_BASE_URL
+# (or MINERU_BASE_URLS) to an existing MinerU 4.0 service.
+# MinerU listens on the compose network as mineru-router:8002 and is not published on the host.
+# ThinkParse does not load CUDA.
+
+name: thinkparse
+
+x-control-env: &control-env
+  THINKPARSE_DATABASE_URL: postgresql://${POSTGRES_USER:-thinkparse}:${POSTGRES_PASSWORD:-thinkparse}@postgres:5432/${POSTGRES_DB:-thinkparse}
+  THINKPARSE_S3_ENDPOINT: http://minio:9000
+  THINKPARSE_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-thinkparse}
+  THINKPARSE_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-thinkparse-secret}
+  THINKPARSE_S3_BUCKET: ${THINKPARSE_S3_BUCKET:-thinkparse}
+  THINKPARSE_REQUIRE_POSTGRES: "1"
+  DOCLING_BASE_URL: ${DOCLING_BASE_URL:-}
+  MINERU_BASE_URL: ${MINERU_BASE_URL:-http://mineru-router:8002}
+  MINERU_BASE_URLS: ${MINERU_BASE_URLS:-}
+  MINERU_API_KEY: ${MINERU_API_KEY:-}
+  THINKPARSE_API_KEY: ${THINKPARSE_API_KEY:-}
+  THINKPARSE_MAX_INFLIGHT: ${THINKPARSE_MAX_INFLIGHT:-4}
+  THINKPARSE_SLOTS: ${THINKPARSE_SLOTS:-}
+  THINKPARSE_INFLIGHT_BYTE_LIMIT: ${THINKPARSE_INFLIGHT_BYTE_LIMIT:-1073741824}
+  THINKPARSE_ACCEPTED_TIERS: ${THINKPARSE_ACCEPTED_TIERS:-}
+  LEGACY_ALLOW_FLASH: ${LEGACY_ALLOW_FLASH:-false}
+
+x-control-depends: &control-depends
+  postgres:
+    condition: service_healthy
+  minio:
+    condition: service_started
+  mineru-cpu:
+    condition: service_healthy
+    required: false
+  mineru-gpu:
+    condition: service_healthy
+    required: false
+
+x-mineru-env: &mineru-env
+  MINERU_MODEL_SOURCE: local
+  MINERU_PROCESSING_WINDOW_SIZE: ${MINERU_PROCESSING_WINDOW_SIZE:-8}
+  MINERU_PDF_RENDER_THREADS: ${MINERU_PDF_RENDER_THREADS:-1}
+  OMP_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  NUMEXPR_NUM_THREADS: "1"
+  # Delete MinerU scratch files the client did not release. 0 keeps them until process exit.
+  MINERU_FILE_RETENTION_SECONDS: ${MINERU_FILE_RETENTION_SECONDS:-21600}
+
+x-mineru-health: &mineru-health
+  test: ["CMD-SHELL", "curl -f http://localhost:8002/v1/health || exit 1"]
+  interval: 15s
+  timeout: 10s
+  retries: 40
+  start_period: 600s
 
 services:
-  # Redis persists AOF under /data. Keep that host path on a different disk from
-  # mineru_temp / mineru_output so bulk parsing cannot fill the Redis volume
-  # (historical MISCONF / stop-writes). Set REDIS_DATA_PATH in docker/.env.
-  redis:
-    profiles: ["redis"]
-    image: redis:latest
-    container_name: mineru-redis
-    restart: always
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+  minio:
+    image: minio/minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-thinkparse}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-thinkparse-secret}
     volumes:
-      - ${REDIS_DATA_PATH:-redis_data}:/data
-    networks:
-      - mineru-network
-    command: redis-server --appendonly yes
+      - thinkparse_minio:/data
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-thinkparse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thinkparse}
+      POSTGRES_DB: ${POSTGRES_DB:-thinkparse}
+    volumes:
+      - thinkparse_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thinkparse}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
-  mineru-api:
-    image: mineru-api:latest
+  mineru-cpu:
+    # Shared with the other engine profile so both cannot run at once.
+    container_name: thinkparse-mineru
+    profiles: ["cpu"]
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.api
+      context: .
+      dockerfile: mineru-cpu.Dockerfile
       args:
+        MINERU_VERSION: ${MINERU_VERSION:-4.0.10}
+        MINERU_DOWNLOAD_SOURCE: ${MINERU_DOWNLOAD_SOURCE:-modelscope}
+        CPU_BASE_IMAGE: ${MINERU_CPU_BASE_IMAGE:-python:3.12-slim}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-    container_name: mineru-api
-    restart: always
-    depends_on:
-      redis:
-        condition: service_healthy
-        required: false
-    env_file:
-      - ../.env
-    ports:
-      - "${MINERU_API_PORT:-8000}:8000"
+    image: thinkparse-mineru:${MINERU_VERSION:-4.0.10}-cpu
     environment:
-      # Redis URL: Read from docker/.env file (or docker/.env.example)
-      # If using internal Redis service: redis://redis:6379/0
-      # If using external Redis on host: redis://host.docker.internal:6379/0
-      # If using external Redis with IP: redis://192.168.1.100:6379/0
-      # If using external Redis with password: redis://:password@host.docker.internal:6379/0
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
-    volumes:
-      # Note: When using S3 storage (MINERU_STORAGE_TYPE=s3), the following volumes will not be used
-      # but kept for backward compatibility
-      - mineru_output:/tmp/mineru_output
-      - mineru_temp:/tmp/mineru_temp
-      - ../api:/app/api
-      - ../shared:/app/shared
+      <<: *mineru-env
+      MINERU_MODEL_SMALL_BACKEND: onnx
+    command:
+      - router
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8002"
+      - --local-gpus
+      - auto
+      - --worker-tier
+      - basic
+      - --worker-concurrency
+      - ${MINERU_CPU_CONCURRENCY:-1}
+      - --preload-models
+    healthcheck: *mineru-health
     networks:
-      - mineru-network
+      default:
+        aliases:
+          - mineru-router
 
-  mineru-worker-gpu:
-    profiles: ["mineru-gpu"]
-    image: mineru-worker:latest
-    # Single worker: NVIDIA count:all (visible), but MinerU typically uses cuda:0 only.
-    # For several cards or several workers per card, use sh gpu-up.sh.
-    # NOTE: This service depends on base image 'mineru-vllm:latest'
-    # Build the base image first using: docker build -f docker/Dockerfile.base -t mineru-vllm:latest ..
-    # Or use the build script: sh build.sh --worker-gpu
+  mineru-gpu:
+    # Shared with the other engine profile so both cannot run at once.
+    container_name: thinkparse-mineru
+    profiles: ["gpu"]
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.worker
+      context: .
+      dockerfile: mineru.Dockerfile
       args:
+        MINERU_VERSION: ${MINERU_VERSION:-4.0.10}
+        MINERU_GPU_TIER: ${MINERU_GPU_TIER:-standard}
+        MINERU_DOWNLOAD_SOURCE: ${MINERU_DOWNLOAD_SOURCE:-modelscope}
+        VLLM_BASE_IMAGE: ${MINERU_GPU_BASE_IMAGE:-vllm/vllm-openai:v0.21.0}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-    container_name: mineru-worker-gpu
-    restart: always
-    depends_on:
-      redis:
-        condition: service_healthy
-        required: false
-    env_file:
-      - ../.env
+    image: thinkparse-mineru:${MINERU_VERSION:-4.0.10}-gpu-${MINERU_GPU_TIER:-standard}
+    shm_size: ${MINERU_SHM_SIZE:-32gb}
+    ipc: host
     environment:
-      # Redis URL: Read from docker/.env file (or docker/.env.example)
-      # If using internal Redis service: redis://redis:6379/0
-      # If using external Redis on host: redis://host.docker.internal:6379/0
-      # If using external Redis with IP: redis://192.168.1.100:6379/0
-      # If using external Redis with password: redis://:password@host.docker.internal:6379/0
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
-      # One active MinerU parse per GPU is the safe production default.
-      - WORKER_CONCURRENCY=${GPU_WORKER_CONCURRENCY:-1}
-    volumes:
-      # Note: When using S3 storage (MINERU_STORAGE_TYPE=s3), the following volumes will not be used
-      # but kept for backward compatibility
-      - mineru_output:/tmp/mineru_output
-      - mineru_temp:/tmp/mineru_temp
-      - ../worker:/app/worker
-      - ../shared:/app/shared
+      <<: *mineru-env
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+    entrypoint: ["mineru-kit"]
+    command:
+      - router
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8002"
+      - --local-gpus
+      - auto
+      - --worker-tier
+      - ${MINERU_GPU_TIER:-standard}
+      - --worker-concurrency
+      - ${MINERU_GPU_CONCURRENCY:-2}
+      - --preload-models
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    healthcheck: *mineru-health
     networks:
-      - mineru-network
+      default:
+        aliases:
+          - mineru-router
     deploy:
       resources:
         reservations:
@@ -105,75 +162,35 @@ services:
               count: all
               capabilities: [gpu]
 
-  mineru-worker-cpu:
-    profiles: ["mineru-cpu"]
-    image: mineru-worker-cpu:latest
+  gateway:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.worker.cpu
+      dockerfile: control/Dockerfile
       args:
+        CONTROL_BASE_IMAGE: ${CONTROL_BASE_IMAGE:-python:3.12-slim}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-        SKIP_MODEL_DOWNLOAD: ${SKIP_MODEL_DOWNLOAD:-false}
-    container_name: mineru-worker-cpu
-    restart: always
-    depends_on:
-      redis:
-        condition: service_healthy
-        required: false
-    env_file:
-      - ../.env
+    image: thinkparse-control:2.0
     environment:
-      # Redis URL: Read from docker/.env file (or docker/.env.example)
-      # If using internal Redis service: redis://redis:6379/0
-      # If using external Redis on host: redis://host.docker.internal:6379/0
-      # If using external Redis with IP: redis://192.168.1.100:6379/0
-      # If using external Redis with password: redis://:password@host.docker.internal:6379/0
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
-    volumes:
-      # Note: When using S3 storage (MINERU_STORAGE_TYPE=s3), the following volumes will not be used
-      # but kept for backward compatibility
-      - mineru_output:/tmp/mineru_output
-      - mineru_temp:/tmp/mineru_temp
-      - ../worker:/app/worker
-      - ../shared:/app/shared
-    networks:
-      - mineru-network
+      <<: *control-env
+      API_PORT: "8000"
+    ports:
+      - "${THINKPARSE_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on: *control-depends
+    restart: unless-stopped
+    command: ["python", "-m", "control.gateway"]
 
-  mineru-cleanup:
-    image: mineru-cleanup:latest
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.cleanup
-      args:
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-    container_name: mineru-cleanup
-    restart: always
-    env_file:
-      - ../.env
+  reconciler:
+    image: thinkparse-control:2.0
     environment:
-      - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
-      # Cleanup scheduler configuration
-      - CLEANUP_INTERVAL_HOURS=${CLEANUP_INTERVAL_HOURS:-6}
-      - CLEANUP_EXTRA_HOURS=${CLEANUP_EXTRA_HOURS:-2}
-      - TEMP_MAX_AGE_HOURS=${TEMP_MAX_AGE_HOURS:-6}
-    volumes:
-      # Note: When using S3 storage (MINERU_STORAGE_TYPE=s3), the following volumes will not be used
-      # but kept for backward compatibility
-      # In S3 storage mode, cleanup service will automatically detect and only clean output files (temporary files handled by S3 lifecycle policy)
-      - mineru_output:/tmp/mineru_output
-      - mineru_temp:/tmp/mineru_temp
-      - ../cleanup:/app/cleanup
-      - ../shared:/app/shared
-    networks:
-      - mineru-network
-    command: python cleanup/cleanup_scheduler.py --interval ${CLEANUP_INTERVAL_HOURS:-6} --extra-hours ${CLEANUP_EXTRA_HOURS:-2} --temp-max-age ${TEMP_MAX_AGE_HOURS:-6}
+      <<: *control-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on: *control-depends
+    restart: unless-stopped
+    command: ["python", "-m", "control.reconciler"]
 
 volumes:
-  mineru_output:
-  mineru_temp:
-  redis_data:
-
-networks:
-  mineru-network:
-    driver: bridge
+  thinkparse_pg:
+  thinkparse_minio:

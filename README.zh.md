@@ -1,13 +1,11 @@
 <div align="center">
 
-<h1>ThinkParse</h1>
+# ThinkParse
 
-<p><strong>通过一个可用于生产环境的 API，将复杂文档转化为干净、结构化的内容。</strong></p>
+**企业级文档解析系统 —— 从单机到分布式多 GPU 集群。**
 
-<p>
-  基于 MinerU、FastAPI、Celery 与 Redis 构建的开源文档解析服务。<br />
-  可靠处理 PDF、图片和 Office 文档，可从单机平滑扩展至分布式 GPU Worker。
-</p>
+开源项目：通过一套可用于生产的 HTTP API，将 PDF、扫描件等复杂文档转为干净的 Markdown 与结构化结果。
+面向 RAG、知识库、科研文献与长时间大批量任务，而不是「在解析模型外包一层演示脚本」。
 
 [![CI](https://github.com/wzdavid/ThinkParse/workflows/CI/badge.svg)](https://github.com/wzdavid/ThinkParse/actions)
 [![Release](https://img.shields.io/github/v/release/wzdavid/ThinkParse)](https://github.com/wzdavid/ThinkParse/releases)
@@ -17,198 +15,136 @@
 
 [English](README.md) · [简体中文](README.zh.md)
 
-[快速开始](#快速开始) · [API 使用](#api-使用) · [部署指南](docs/DEPLOYMENT.zh.md) · [配置参考](docs/CONFIGURATION.zh.md) · [故障排除](docs/TROUBLESHOOTING.zh.md)
+[快速开始](#快速开始) · [为什么选择 ThinkParse](#为什么选择-thinkparse) · [文档](docs/README.zh.md) · [贡献](CONTRIBUTING.md)
 
 </div>
 
 ## 为什么选择 ThinkParse？
 
-当文档处理超出本地脚本的能力范围，解析就会变得复杂：大文件耗时较长、GPU 进程可能异常、结果可能挤占队列存储，而生产部署还需要可观测、可恢复的 Worker。
+[MinerU](https://github.com/opendatalab/MinerU) 等引擎解决的是「一篇文档怎么解析好」。真正做成业务系统时，还要回答：
 
-ThinkParse 将解析引擎封装在稳定的 HTTP API 和异步 Worker 架构之后：
+- 文档是几千、几万甚至上百万份时，如何稳定排队、异步完成，而不是同步接口超时？
+- 机器上有多张 GPU，如何真正并行，而不是只吃到 `cuda:0`？
+- Worker / 引擎重启后，任务会不会丢？能否取消、重试、可观测？
+- API 与解析算力如何拆开，单机不够时如何分布式扩展？
 
-- **高质量文档解析** —— 基于 MinerU 3.4.5 提取 Markdown、表格、公式、图片和结构化中间结果。
-- **支持多种文档格式** —— PDF 与图片交由 MinerU 解析，Office、HTML 和文本格式交由 MarkItDown 转换。
-- **完整的生产任务流程** —— 无需长时间保持客户端连接，即可提交、轮询、设置优先级、取消和检查解析任务。
-- **支持 CPU 与 GPU 部署** —— 可用 CPU Worker 本地启动，也可在单台服务器使用一张或多张 GPU，或跨节点扩展 Worker；天河等只允许一个容器的调度环境可使用 **all-in-one 单容器**。
-- **可靠处理长文档** —— 在任务之间复用解析引擎，并通过进程隔离实现取消、超时恢复和自动重启。
-- **可扩展存储** —— 单机使用本地卷，分布式部署使用 S3 兼容存储。
-- **清晰的运行状态** —— 分层健康检查提供就绪状态、队列深度、Worker 心跳、任务耗时和 GPU 状态。
+ThinkParse 就是补这一层的**企业级文档解析系统**：稳定 API、持久任务、共享对象存储、多 GPU 并行与分布式部署。
+
+| 竞争力 | 你得到什么 |
+|---|---|
+| **大批量稳定可靠解析** | 提交 / 轮询 / 取消；任务可恢复；`priority`（0–9，越大越优先）可插队，不打断已在解析的任务 |
+| **多 GPU 并行处理** | 引擎侧每张可见 GPU 一个解析进程；ThinkParse 用槽位与在途字节控并发，并可向多台引擎分摊 |
+| **分布式部署** | API 与协调器可在 CPU 机；GPU 机只跑引擎；共享 Postgres + S3/MinIO |
+| **生产级 API** | `/api/v1` 异步任务；`/api/v2` 上传 / 任务 / 文件 / 批次 |
+| **可运维** | 分层健康检查、档位发现、统计、批次、排队 / 解析 / 投影耗时 |
+| **高质量输出** | Markdown、表格、公式、图片、`content_list`、中间 JSON |
+
+解析质量来自 MinerU 4.0（可选 Docling 处理部分非 PDF 格式）。ThinkParse 负责**服务层**：调度、持久化、容量，以及业务侧调用的稳定 API。
+
+> 偶尔解析几份 PDF：直接用引擎即可。  
+> 做 RAG、知识库、文献流水线或持续批量转换：用 ThinkParse。
+
+相关介绍也可参考：[开源发布](https://mp.weixin.qq.com/s/jUecLiKLdqx4prEYYHlXjQ) · [企业级异步可扩展](https://mp.weixin.qq.com/s/c88aQmgm8SQqiKP63whjHA) · [多 GPU 大批量](https://mp.weixin.qq.com/s/qjtveaRcpkMQHih8yA0vgQ)。
 
 ## 工作原理
 
 ```text
-客户端 → FastAPI → Redis 队列 → Celery Worker → MinerU / MarkItDown
-  ↑                                               ↓
-  └────────────── 状态与结果 ──────────── 本地或 S3 存储
+你的应用
+   │  POST /api/v1/tasks/submit   或   /api/v2/uploads + /api/v2/jobs
+   ▼
+┌──────────────────────────────────────────────┐
+│ ThinkParse（API + 任务编排）                    │
+│  网关 · PostgreSQL · 对象存储 · 协调循环         │
+└──────────────────┬───────────────────────────┘
+                   │ HTTP
+        ┌──────────┴──────────┐
+        ▼                     ▼
+  MinerU 4.0（多 GPU）      Docling Serve（可选）
 ```
 
-API 保持轻量，耗时的解析工作由 Worker 完成。增加 Worker 时无需修改客户端集成。
+API 保持轻量，重活在引擎节点。增加 GPU 或机器时，客户端提交方式不变。
 
 ## 快速开始
 
-### 环境要求
-
-- Docker 与 Docker Compose
-- 可选：NVIDIA GPU、NVIDIA Container Toolkit，以及满足解析模型要求的显存
-
-> 首次构建或首次使用 CPU 解析时，可能需要下载依赖和模型，因此耗时会更长。
-
-### 1. 克隆并配置
+**环境：** Docker。GPU 模式还需 NVIDIA 驱动与 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/)。
 
 ```bash
 git clone https://github.com/wzdavid/ThinkParse.git
 cd ThinkParse
 cp .env.example .env
-cp docker/.env.example docker/.env
+# 三选一：COMPOSE_PROFILES=gpu | cpu | （留空接外部 MinerU）
+# 修改 POSTGRES_PASSWORD、MINIO_ROOT_USER、MINIO_ROOT_PASSWORD
+
+docker compose --env-file .env -f docker/docker-compose.yml up -d --build
+curl -fsS http://127.0.0.1:8000/api/v1/health/live
+curl -sS http://127.0.0.1:8000/api/v1/health/ready
+curl -sS http://127.0.0.1:8000/api/v2/tiers
 ```
 
-如需最简单的本地体验，请打开 `docker/.env` 并选择 CPU 配置：
-
-```dotenv
-COMPOSE_PROFILES=redis,mineru-cpu
-```
-
-在 NVIDIA GPU 主机上使用：
-
-```dotenv
-COMPOSE_PROFILES=redis,mineru-gpu
-```
-
-### 2. 构建并启动
+异步提交（批量与生产推荐）：
 
 ```bash
-cd docker
-sh build.sh
-docker compose up -d
-```
-
-### 3. 验证服务
-
-```bash
-curl http://localhost:8000/api/v1/health/live
-curl http://localhost:8000/api/v1/health/ready
-```
-
-就绪检查返回 HTTP `200` 后，可访问：
-
-- 交互式 API 文档：<http://localhost:8000/docs>
-- 服务信息：<http://localhost:8000/>
-
-查看日志或停止服务：
-
-```bash
-docker compose logs -f
-docker compose down
-```
-
-## API 使用
-
-ThinkParse 提供适合生产负载的异步 API，以及适合简单集成的 MinerU 同步兼容接口。
-
-### 推荐：异步任务 API
-
-提交文档：
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/tasks/submit" \
+curl -sS \
   -F "file=@document.pdf" \
   -F "backend=pipeline" \
-  -F "lang=ch"
+  http://127.0.0.1:8000/api/v1/tasks/submit
 ```
 
-响应中会包含 `task_id`：
+轮询 `GET /api/v1/tasks/{task_id}` 直至 `completed` / `failed` / `cancelled`。
 
-```json
-{
-  "success": true,
-  "task_id": "abc123",
-  "status": "pending"
-}
-```
-
-轮询任务，直至状态变为 `completed`、`failed` 或 `cancelled`：
-
-```bash
-curl "http://localhost:8000/api/v1/tasks/abc123"
-```
-
-取消任务：
-
-```bash
-curl -X DELETE "http://localhost:8000/api/v1/tasks/abc123"
-```
-
-批量处理、长耗时文档、S3 存储、多 Worker 和多节点部署都应优先使用异步 API。
-
-### 同步兼容 API
-
-如果是简单的单机集成，并希望等待接口直接返回结果：
-
-```bash
-curl -X POST "http://localhost:8000/file_parse" \
-  -F "files=@document.pdf" \
-  -F "backend=pipeline" \
-  -F "lang_list=ch" \
-  -F "parse_method=auto" \
-  -F "return_md=true"
-```
-
-此端点沿用 MinerU `/file_parse` 请求形式。生产环境建议使用异步 API，因为同步请求会在整个解析过程中保持连接。
-
-Python、JavaScript、批处理、优先级和错误处理示例请参阅 [API 示例](docs/API_EXAMPLES.zh.md)。
+完整步骤：[快速开始](docs/quickstart.zh.md) · [部署](docs/deployment.zh.md)。
 
 ## 部署方式
 
-### 单机部署
+| 模式 | 场景 | 说明 |
+|---|---|---|
+| **CPU** | 本机试用 | `COMPOSE_PROFILES=cpu`，档位 `flash` / `basic` |
+| **GPU（单卡 / 多卡）** | 生产吞吐 | `COMPOSE_PROFILES=gpu`，每张可见卡一个进程；调节 `MINERU_GPU_CONCURRENCY` 与 `THINKPARSE_SLOTS` |
+| **外部引擎** | 已有 MinerU | 清空 profile，配置 `MINERU_BASE_URL(S)` |
+| **分布式** | API 与 GPU 分机 | 共享 Postgres + MinIO/S3；多 MinerU 地址；用槽位与在途字节控容量 |
 
-- **CPU：** `COMPOSE_PROFILES=redis,mineru-cpu`
-- **单 GPU：** `COMPOSE_PROFILES=redis,mineru-gpu`
-- **多 GPU：** `cd docker && sh gpu-up.sh`（`MINERU_GPU_COUNT`、`MINERU_WORKERS_PER_GPU`）
+不要同时开 `cpu` 与 `gpu`。网关端口 **8000**。详见 [部署](docs/deployment.zh.md) 与 [运维与算力](docs/operations.zh.md)。
 
-### 分布式部署
+## API 一览
 
-使用共享 Redis 和 S3 兼容存储，即可将 API 与 Worker 部署在不同主机上。详见[大规模多节点部署](docs/PRODUCTION_MULTI_NODE.zh.md)。
+| API | 用途 |
+|---|---|
+| `/api/v1/tasks/*` | 生产异步流程（提交 / 轮询 / 取消） |
+| `/file_parse` | 同步便捷接口，批量请优先异步 |
+| `/api/v2/*` | 上传、任务、文件、档位、统计、批次 |
 
-### 生产环境检查
+引擎原生路由不对外。接口约定见 [API 参考](docs/api.zh.md)。
 
-- 设置 `ENVIRONMENT=production` 并限制 `CORS_ALLOWED_ORIGINS`。
-- 为 Redis 启用身份验证，并将其持久化数据与解析输出存放在不同磁盘。
-- Worker 不共享文件系统时，请使用 S3 兼容存储。
-- 每个 Worker 进程保持一个活跃 MinerU 任务（`GPU_WORKER_CONCURRENCY=1`）；用 `sh gpu-up.sh` 和 `MINERU_WORKERS_PER_GPU` 扩容。
-- `/api/v1/health/deep` 会暴露详细运行信息，应仅对运维人员开放。
+## 谁适合用
 
-## 健康检查与运维
-
-- `GET /api/v1/health/live` —— API 进程存活检查
-- `GET /api/v1/health/ready` —— Redis、存储和 Worker 就绪检查
-- `GET /api/v1/health/deep` —— 详细的队列、任务、引擎和 GPU 诊断
-- `GET /api/v1/queue/stats` —— 当前队列与 Worker 数量
-- `GET /api/v1/queue/tasks` —— 活跃和已预留任务
+- **RAG / 知识库团队** —— 切片与向量化前的统一 Markdown 与结构
+- **科研与数据平台** —— 批量论文、研报、合同，无需长时间占着 HTTP
+- **AI 应用团队** —— 把文档解析做成微服务，业务侧不装引擎依赖
+- **中台 / 基础设施** —— 多 GPU、多节点解析农场，共享存储与清晰健康信号
 
 ## 文档
 
-- [文档索引](docs/README.zh.md)
-- [部署指南](docs/DEPLOYMENT.zh.md)
-- [单容器部署（天河）](docs/DEPLOYMENT_ALLINONE.zh.md)
-- [配置参考](docs/CONFIGURATION.zh.md)
-- [API 示例](docs/API_EXAMPLES.zh.md)
-- [故障排除](docs/TROUBLESHOOTING.zh.md)
-- [S3 存储与清理](docs/S3_STORAGE.zh.md)
-- [开发指南](docs/DEVELOPMENT.zh.md)
+| 文档 | 说明 |
+|---|---|
+| [产品概述](docs/overview.zh.md) | 定位、目标与非目标 |
+| [架构](docs/architecture.zh.md) | 系统设计、引擎、数据模型 |
+| [快速开始](docs/quickstart.zh.md) | 第一次完整解析 |
+| [部署](docs/deployment.zh.md) | 模式、验收、排障 |
+| [API](docs/api.zh.md) | `/api/v1` 与 `/api/v2` |
+| [运维与算力](docs/operations.zh.md) | 统计、容量、多 GPU 调参 |
 
-## 参与贡献
+## 开发
 
-欢迎提交 Issue 和 Pull Request。贡献前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题请按照 [SECURITY.md](SECURITY.md) 中的方式报告。
+```bash
+pip install -r control/requirements.txt
+PYTHONPATH=. python -m unittest discover -s tests -p 'test_control_*.py'
+ruff check control tests
+```
 
 ## 致谢
 
-ThinkParse 基于以下开源项目构建：
-
-- [MinerU](https://github.com/opendatalab/MinerU) —— 文档解析引擎
-- [MarkItDown](https://github.com/microsoft/markitdown) —— Office、HTML 和文本转换
-- [FastAPI](https://fastapi.tiangolo.com/)、[Celery](https://docs.celeryq.dev/) 与 [Redis](https://redis.io/) —— API 与分布式任务基础设施
+ThinkParse 基于 [MinerU](https://github.com/opendatalab/MinerU)、可选 [Docling](https://github.com/docling-project/docling)、FastAPI、PostgreSQL 与 S3 兼容存储等开源组件构建。
 
 ## 许可证
 
-ThinkParse 使用 [MIT License](LICENSE) 发布。第三方组件仍遵循各自许可证，包括 [MinerU 开源许可证](https://github.com/opendatalab/MinerU/blob/master/LICENSE.md)与 [MarkItDown MIT License](https://github.com/microsoft/markitdown/blob/main/LICENSE)。
+[MIT](LICENSE)。第三方引擎仍遵循各自许可证。

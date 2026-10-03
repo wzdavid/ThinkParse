@@ -1,14 +1,14 @@
 [project]
 name = "think-parse"
-version = "1.4.2"
-description = "ThinkParse — enterprise-grade document parsing service with asynchronous queue processing based on Celery"
+version = "2.0.0"
+description = "Enterprise document parsing system — multi-GPU, distributed, batch-ready"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "ThinkParse Contributors"}
 ]
-keywords = ["document-parsing", "thinkparse", "mineru", "celery", "fastapi", "async"]
+keywords = ["document-parsing", "thinkparse", "mineru", "fastapi"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

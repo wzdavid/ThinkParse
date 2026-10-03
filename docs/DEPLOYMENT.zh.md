@@ -1,410 +1,207 @@
 # 部署指南
 
-本文档详细说明如何在生产环境部署 ThinkParse。
+ThinkParse 支持 CPU 试用、单机多 GPU，以及 API 与引擎分机的分布式部署。先选一种模式再启动；`cpu` 与 `gpu` 不要同时开。产品背景见 [概述](overview.zh.md)；架构见 [架构](architecture.zh.md)。
 
-## 目录
+对外只有 `/api/v1` 与 `/api/v2`。引擎原生 `/v1` 不对外。
 
-- [Docker 部署](#docker-部署)
-- [生产环境配置](#生产环境配置)
-- [1.4.2 版本试运行](#142-版本试运行)
-- [扩展和优化](#扩展和优化)
-- [监控和日志](#监控和日志)
-- [大规模多机部署](PRODUCTION_MULTI_NODE.zh.md) — S3 + 共享 Redis + 多 GPU 节点
-- [单容器部署（天河 / HPC）](DEPLOYMENT_ALLINONE.zh.md) — 四角色一个容器
+## 进程与端口
 
-## Docker 部署
+| 进程 | 启动方式 | 地址 | 作用 |
+|---|---|---|---|
+| ThinkParse 网关 | `docker/docker-compose.yml` | `0.0.0.0:8000` | 客户端入口 |
+| ThinkParse 协调器 | 同一 compose | 不对外 | 投递、轮询引擎、投影 |
+| PostgreSQL、MinIO | 同一 compose | 仅 compose 网络 | 任务与对象；默认不映射宿主机 |
+| MinerU Router | `cpu` 或 `gpu` profile | 网络内 `mineru-router:8002` | `external` 模式不启动 |
 
-### 基本部署
+客户端只访问 **8000**。MinerU `8002` 不映射到宿主机。
 
-```bash
-# 1. 复制环境配置文件
-cp .env.example .env
+## 1. 选择模式并启动
 
-# 2. 编辑 .env 文件，配置生产环境参数
-vim .env
+在仓库根目录：`cp .env.example .env`，然后只选一种：
 
-# 3. 启动服务
-cd docker && docker compose up -d redis mineru-api
+| 模式 | `.env` | 宿主机要求 | 档位 |
+|---|---|---|---|
+| `gpu` | `COMPOSE_PROFILES=gpu` | Docker、CUDA 可用的 NVIDIA 驱动、NVIDIA Container Toolkit | `MINERU_GPU_TIER=standard`：四档；`=basic`：`flash`、`basic`（不下载 VLM，适合小显存） |
+| `cpu` | `COMPOSE_PROFILES=cpu` | Docker | `flash`、`basic` |
+| `external` | 清空 `COMPOSE_PROFILES`，设置 `MINERU_BASE_URL(S)` | Docker | 该 MinerU 报告的档位 |
 
-# 4. 启动 Worker
-cd docker && docker compose --profile mineru-cpu up -d
-# 或
-cd docker && docker compose --profile mineru-gpu up -d
-```
+`external` 下不要保留 `http://mineru-router:8002`（该名只在 cpu/gpu profile 存在）。同机 MinerU 可用 `http://host.docker.internal:<端口>`。多台用 `MINERU_BASE_URLS`，逗号分隔。
 
-**多卡**：默认 `mineru-gpu` 是单个 Worker（通常只用 `cuda:0`）。按卡数和每卡进程数生成容器：
+同时写 `cpu,gpu` 时 compose 会因容器名冲突拒绝启动——这是故意的。
 
-```bash
-# docker/.env
-MINERU_GPU_COUNT=2
-MINERU_WORKERS_PER_GPU=4
-GPU_WORKER_CONCURRENCY=1
-```
+启动前修改 `POSTGRES_PASSWORD`、`MINIO_ROOT_USER`、`MINIO_ROOT_PASSWORD`。密码拼进连接串时请只用字母数字。
+
+构建源默认 Docker Hub / PyPI。国内可按 `.env.example` 设置 `MINERU_*_BASE_IMAGE`、`CONTROL_BASE_IMAGE`、`PIP_INDEX_URL`。模型默认 `modelscope`，海外可设 `MINERU_DOWNLOAD_SOURCE=huggingface`。
 
 ```bash
-cd docker && sh gpu-up.sh
+docker compose --env-file .env -f docker/docker-compose.yml config --services
+docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 ```
 
-`GPU_WORKER_CONCURRENCY` 保持 1。不要同时启用 `mineru-gpu`。详见 [docker/README.md](../docker/README.md#multi-gpu-workers)。
+先用 `config --services` 确认：`gpu` 有 `mineru-gpu`，`cpu` 有 `mineru-cpu`，`external` 两者都没有。
 
-**天河 / 只允许一个容器**：不要拆成 Redis、API、Worker、Cleanup 四个容器。构建 `mineru-allinone` 镜像，由调度器只提交这一只容器。见 [单容器部署](DEPLOYMENT_ALLINONE.zh.md)。
+第一次构建：
 
-### 构建自定义镜像
+- `gpu` 镜像下载 `MINERU_GPU_TIER` 所需模型；`standard` 含 VLM。
+- `cpu` 镜像只下载 ONNX `basic`。
+
+`up` 会等 MinerU 健康后再起网关（`start_period` 约 600 秒）。
+
+### 并发起点
+
+- `gpu`：容器内全部可见 GPU；每卡一进程；`MINERU_GPU_CONCURRENCY` 默认 2。部分卡用 `NVIDIA_VISIBLE_DEVICES`。
+- `cpu`：单 worker；`MINERU_CPU_CONCURRENCY` 默认 1。
+- 窗口默认 8；PDF 渲染与数值库线程默认 1。
+
+ThinkParse 按**每台** MinerU 的槽位放行。未写 `THINKPARSE_SLOTS` 时，每台用 `THINKPARSE_MAX_INFLIGHT`（默认 4）。GPU Router 建议写成「可见卡数 × `MINERU_GPU_CONCURRENCY`」。在途原文另有字节闸：`THINKPARSE_INFLIGHT_BYTE_LIMIT`（默认 1 GiB）。占用见 `GET /api/v2/stats`。
 
 ```bash
-# 构建所有镜像
-cd docker && docker compose build
-
-# 构建特定服务
-cd docker && docker compose build mineru-api
-cd docker && docker compose build mineru-worker-cpu
-cd docker && docker compose build mineru-worker-gpu
+docker compose --env-file .env -f docker/docker-compose.yml ps
+curl -sS http://127.0.0.1:8000/api/v2/tiers
 ```
 
-## 生产环境配置
+- `discovered: true`：已从上游读到档位。
+- `discovered: false`：上游尚未可达，列表只是配置允许值；先排障再压测。
 
-### 1. Redis 配置
+多张卡共用一个 Router 时不要设 `MINERU_BASE_URLS`。只有多台独立 Router 才用逗号列表。
 
-**安全配置**:
-```bash
-# .env（项目根目录）
-REDIS_URL=redis://:your-strong-password@redis:6379/0
-```
+`/api/v1` 默认档始终是 `basic`。GPU 能跑 `standard` 不等于应改兼容客户端的默认档。
 
-**数据目录隔离（生产 / 大批量解析必做）**:
-
-大批量文档解析会占满 `mineru_temp` / `mineru_output` 所在磁盘。若 Redis 的 AOF/RDB 与之同盘，可能触发 `MISCONF`（stop-writes），任务提交返回 HTTP 500。
-
-在 `docker/.env` 中设置 `REDIS_DATA_PATH`，指向与 temp/output **不同磁盘**上的独立宿主机目录：
+## 2. 健康检查
 
 ```bash
-# docker/.env
-# 必须与 mineru_temp / mineru_output 所在 Docker 卷不在同一块磁盘
-REDIS_DATA_PATH=/data/redis
-
-# 示例：Redis 放 /data，解析临时/输出文件放另一块盘
-# REDIS_DATA_PATH=/mnt/ssd-redis/mineru-redis
+curl -fsS http://127.0.0.1:8000/api/v1/health/live
+curl -sS -D - http://127.0.0.1:8000/api/v1/health/ready -o /tmp/thinkparse-ready.json
+cat /tmp/thinkparse-ready.json
 ```
 
-创建目录后重建 Redis 容器使挂载生效：
+`live` 应为 200。`ready` 在 MinerU 可达时为 200，否则 503。两种情况下 `components.task_store` 与 `components.object_store` 都应为 `true`。`components.mineru` 为 `false` 时不要提交作业。
+
+负载均衡探活推荐 `GET /api/v2/health`（可不带 API key）。更深信息见 `/api/v1/health/deep`。
+
+## 3. 整篇 PDF 往返
+
+用仓库样例 `tests/files/2604.04771v2.pdf`（43 页）做验收。开发机上不要用「只解析几页」代替整篇 GPU 验收。
 
 ```bash
-mkdir -p /data/redis
-cd docker && docker compose --profile redis up -d redis
+curl -sS \
+  -F "file=@tests/files/2604.04771v2.pdf" \
+  -F "backend=pipeline" \
+  http://127.0.0.1:8000/api/v1/tasks/submit
 ```
 
-未设置时回退为命名卷 `redis_data`（通常仍与 temp/output 同在 Docker 数据盘上，**不适合大批量场景**）。
-
-**Redis 集群**:
-- 配置 Redis Sentinel 或 Cluster
-- 更新 `REDIS_URL` 指向集群地址
-
-### 2. 存储配置
-
-**推荐使用 S3 存储**（支持分布式部署）:
+响应应为 `pending` 并返回 `task_id`。不要传 `tier=standard` 或 `backend=vlm` 做第一轮兼容验收。
 
 ```bash
-MINERU_STORAGE_TYPE=s3
-MINERU_S3_ENDPOINT=https://s3.example.com
-MINERU_S3_ACCESS_KEY=your-access-key
-MINERU_S3_SECRET_KEY=your-secret-key
-MINERU_S3_BUCKET_TEMP=mineru-temp
-MINERU_S3_BUCKET_OUTPUT=mineru-output
-MINERU_S3_SECURE=true
+TASK_ID=<task_id>
+while true; do
+  BODY=$(curl -sS "http://127.0.0.1:8000/api/v1/tasks/${TASK_ID}")
+  STATUS=$(printf '%s' "$BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["task"]["status"])')
+  echo "$STATUS"
+  case "$STATUS" in
+    completed|failed|cancelled) printf '%s\n' "$BODY" > /tmp/thinkparse-task.json; break ;;
+  esac
+  sleep 5
+done
 ```
 
-### 3. CORS 配置
+默认超时 7200 秒。内部 `projecting` 对外仍是 `processing`。
 
-**生产环境必须限制允许的来源**:
+建议同时记录资源基线（在途为 1 时）：
 
 ```bash
-CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
-ENVIRONMENT=production
-HEALTH_DEPENDENCY_TIMEOUT_SECONDS=5
+nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv
+free -h
+curl -sS http://127.0.0.1:8000/api/v1/health/deep
 ```
 
-### 4. 文件大小限制
+## 4. 完成响应核对
+
+第 3 步结束时，整份响应在 `/tmp/thinkparse-task.json`。不要直接打开这个文件：`images[].data_url` 是图片字节，样例论文大约几十张图，文件会到数十 MB。用下面的脚本看摘要。
 
 ```bash
-MAX_FILE_SIZE=104857600  # 100MB，根据需求调整
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+body = json.loads(Path("/tmp/thinkparse-task.json").read_text())
+task = body["task"]
+middle = body.get("middle_json") or {}
+info = middle.get("pdf_info") or []
+content = body.get("content_list") or []
+images = body.get("images") or []
+markdown = body.get("markdown_content") or ""
+equations = [item for item in content if item.get("type") == "equation" and item.get("text")]
+tables = [item for item in content if item.get("type") == "table" and "<table" in (item.get("table_body") or "")]
+header = ""
+for page in info:
+    for block in page.get("discarded_blocks") or []:
+        for line in block.get("lines") or []:
+            for span in line.get("spans") or []:
+                text = span.get("content") or ""
+                if "2604.04771" in text:
+                    header = text
+print("status", task.get("status"))
+print("error_message", task.get("error_message"))
+print("pages", len(info), "page_size", info[0].get("page_size") if info else None)
+print("schema_key", "schema" in middle)
+print("equations", len(equations), "html_tables", len(tables))
+print("markdown_chars", len(markdown), "same_as_data.content", markdown == (body.get("data") or {}).get("content"))
+print("data_image_in_markdown", markdown.count("data:image"))
+print("images", len(images), "first", None if not images else {k: images[0][k] for k in ("filename", "mime_type", "size_bytes")})
+print("header", header or "(样例页眉未找到)")
+PY
 ```
 
-### 5. Worker 配置
+样例 `tests/files/2604.04771v2.pdf` 在 `basic` 档通过时，大致应看到：
+
+- `status` 为 `completed`，`error_message` 为 `None`
+- `pages` 为 43，`page_size` 不是 `[0, 0]`，`schema_key` 为 `False`
+- `equations`、`html_tables` 都大于 0
+- `same_as_data.content` 为 `True`，`data_image_in_markdown` 为 0
+- `images` 大于 0；每项在 JSON 里还有 `data_url`，脚本故意不打印它
+- `header` 含 `arXiv:2604.04771`
+
+正文在 `markdown_content`。要阅读而不是核对时，另存成 Markdown：
 
 ```bash
-# GPU Worker：一卡只运行一个 MinerU 任务
-WORKER_CONCURRENCY=1
-
-# Worker 池类型（必须使用 threads）
-WORKER_POOL=threads
-
-# 使用 MinerU 3.x 内置 processing window 处理长文档
-MINERU_ENABLE_PAGINATION=false
-MINERU_PROCESSING_WINDOW_SIZE=64
-
-# 引擎恢复与可观测性
-MINERU_ENGINE_TIMEOUT_SECONDS=7200
-WORKER_WATCHDOG_TIMEOUT_SECONDS=7500
-BROKER_VISIBILITY_TIMEOUT_SECONDS=9000
-WORKER_HEARTBEAT_SECONDS=15
-GPU_METRICS_INTERVAL_SECONDS=30
-
-# 内存限制（KB）
-WORKER_MAX_MEMORY_PER_CHILD=2000000  # 2GB
+python3 -c 'import json; from pathlib import Path; body=json.loads(Path("/tmp/thinkparse-task.json").read_text()); Path("/tmp/thinkparse-result.md").write_text(body["markdown_content"])'
 ```
 
-不要通过提高 `WORKER_CONCURRENCY` 或 `GPU_WORKER_CONCURRENCY` 扩容。
-一个进程里的 MinerU 引擎有锁，提高并发不会在 GPU 上并行解析。
-用 `MINERU_WORKERS_PER_GPU`（`sh gpu-up.sh`）增加容器。
-旧版 ThinkParse 物理分页会切断跨页上下文，并增加 chunk/merge 调度阻塞风险，
-因此仅作为兼容回退。
+图片不要从 `data_url` 里肉眼看。`/api/v2` 的完成任务给出 `output_files.images[].file_id`，用 `GET /api/v2/files/{file_id}/content` 下载单张。任务 JSON 本身不含 base64。
 
-保持 `WORKER_WATCHDOG_TIMEOUT_SECONDS` 大于
-`MINERU_ENGINE_TIMEOUT_SECONDS`，并保持
-`BROKER_VISIBILITY_TIMEOUT_SECONDS` 大于 watchdog 超时，避免 Redis
-重复投递仍在正常执行的长任务。`RESULT_EXPIRES` 还必须更大，以保证
-取消标记覆盖重投周期。下游请求超时还应预留额外时间，以便引擎上报
-最终状态。
+投影形状的夹具在 `tests/fixtures/legacy_projection/`。
 
-## 1.4.2 版本试运行
+## 5. 接到业务系统
 
-1.4.2 已适合在服务器上进行受控试运行。部署前：
+验收通过、且显存 / 内存未顶满后，再把上游应用的解析 base URL 指到 `http://<host>:8000`。不要为了「填满 GPU」一次性把并发拉到很高：每次只加 1，并重复第 3 节的资源记录；内存先顶满就停。
 
-1. 备份当前 `.env`、Redis 持久化数据和输出存储。
-2. 对比现有 `.env` 与 `.env.example`；更新代码不会自动向已有环境文件
-   添加新变量。
-3. 保留上一版本的 API、Worker、cleanup 镜像及匹配的源码版本。默认
-   Compose 会挂载 `api/`、`worker/` 和 `shared/`，仅恢复镜像不能回滚
-   应用代码。
-4. 将 `/api/v1/health/deep` 限制为仅运维人员可访问。
-5. 验证最终 Compose 配置：
-   ```bash
-   # 单卡：
-   cd docker && docker compose --profile mineru-gpu config --quiet
-   # 多卡：
-   cd docker && sh gpu-up.sh --render-only && \
-     docker compose -f docker-compose.yml -f docker-compose.gpus.yml \
-       --profile redis --profile mineru-multi-gpu config --quiet
-   ```
+加大并发时同时关注 `MINERU_GPU_CONCURRENCY`（或 CPU 对应项）与 `THINKPARSE_SLOTS` / `THINKPARSE_MAX_INFLIGHT`。详见 [运维与算力](operations.zh.md)。
 
-构建并启动试运行版本：
+## 6. 排障
+
+| 现象 | 含义 |
+|---|---|
+| `ready` 503，`mineru` false | MinerU 未健康、未启用 profile，或 `external` URL 错误。看 `logs mineru-gpu` / `mineru-cpu` |
+| `tiers.discovered` false | 读不到任何上游 `/v1/tiers` |
+| 提交 400，`not available in this deployment` | 当前部署无该档 |
+| `failed`，错误来自上游拒绝 | MinerU 4xx；不重试 |
+| `failed`，upstream unavailable | 解析中途上游退出或 URL 错误；compose 内应为 `http://mineru-router:8002` |
+| 一直 `processing` | 协调器未跑或仍在解析：`logs -f reconciler` |
+| `completed` 但缺 `content_list` | 投影异常；应标失败。若仍 completed，保留响应 JSON |
+| 提到 advanced / flash 的 400 | `/api/v1` 拒 `advanced`；`flash` 需 `LEGACY_ALLOW_FLASH=true` |
+| `.xml` / `.tex` / `.eml` 400 | 未配置 `DOCLING_BASE_URL` |
 
 ```bash
-cd docker
-sh build.sh --api --worker-gpu --cleanup --rebuild-base
-# 单卡：
-docker compose --profile redis --profile mineru-gpu up -d
-# 多卡（在 docker/.env 设置 MINERU_GPU_COUNT / MINERU_WORKERS_PER_GPU）：
-sh gpu-up.sh
+docker compose --env-file .env -f docker/docker-compose.yml logs -f gateway reconciler mineru-gpu
+docker compose --env-file .env -f docker/docker-compose.yml down      # 保留卷
+# down -v 会删除任务与产物
 ```
 
-天河等只允许一个容器的环境改为构建 all-in-one 镜像，见 [单容器部署](DEPLOYMENT_ALLINONE.zh.md)：
+## 7. 第一轮不要做的事
 
-```bash
-cd docker
-sh build.sh --allinone
-```
-
-验收检查：
-
-1. `/health/live` 和 `/health/ready` 返回 HTTP 200。
-2. `/health/deep` 显示版本 `1.4.2`，Redis、存储和 Worker 均可用，
-   Worker 心跳时间正常，并显示预期的 GPU 与引擎状态。
-3. 首次解析在模型初始化后成功完成；再次解析可确认引擎复用。
-4. 取消活动任务后接口返回 `cancel_requested`，任务最终变为
-   `cancelled`，且下一任务能够在新的引擎代次上成功完成。
-5. 代表性的文本型、扫描型、公式密集、表格密集及长 PDF 均能完成，
-   不出现长期残留的活动任务或持续增长的队列。
-6. 至少观察一个正常业务负载周期，并检查 Worker 重启、引擎重启次数、
-   队列深度、任务耗时、内存和磁盘状态。
-
-如果出现 Worker 重启循环、引擎反复崩溃、结果错误、队列持续增长或
-下游 API 不兼容，应停止扩大试运行范围，并恢复保留的镜像、匹配的
-源码版本和 `.env` 备份，随后重新创建容器。回滚时不要删除 Redis 或
-输出数据。
-
-## 扩展和优化
-
-### 水平扩展 Worker
-
-**方法 1: Docker Compose Scale**
-
-```bash
-docker compose up -d --scale mineru-worker-cpu=4
-```
-
-**方法 2: Kubernetes**
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mineru-worker
-spec:
-  replicas: 4
-  template:
-    spec:
-      containers:
-      - name: worker
-        image: mineru-worker-cpu:latest
-        env:
-        - name: REDIS_URL
-          value: "redis://redis-service:6379/0"
-```
-
-### 负载均衡
-
-**使用 Nginx**:
-
-```nginx
-upstream mineru_api {
-    server mineru-api:8000;
-}
-
-server {
-    listen 80;
-    server_name api.yourdomain.com;
-
-    location / {
-        proxy_pass http://mineru_api;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
-
-### 资源限制
-
-在 `docker/docker-compose.yml` 中添加资源限制:
-
-```yaml
-services:
-  mineru-worker-cpu:
-    deploy:
-      resources:
-        limits:
-          memory: 4g
-          cpus: '2'
-        reservations:
-          memory: 2g
-          cpus: '1'
-```
-
-## 监控和日志
-
-### 日志配置
-
-**查看日志**:
-```bash
-# 查看所有服务日志
-cd docker && docker compose logs -f
-
-# 查看特定服务日志
-cd docker && docker compose logs -f mineru-api
-cd docker && docker compose logs -f mineru-worker-cpu
-```
-
-**日志持久化**:
-```yaml
-services:
-  mineru-api:
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-```
-
-### 健康检查
-
-API 提供分层健康检查端点:
-```bash
-curl http://localhost:8000/api/v1/health/live   # API 进程存活
-curl http://localhost:8000/api/v1/health/ready  # Redis、存储与 Worker 就绪
-curl http://localhost:8000/api/v1/health/deep   # 队列、活动任务、心跳与有效配置
-```
-
-`ready` 在依赖不可用时返回 HTTP 503；`live` 仅用于容器存活检查。
-兼容端点 `/api/v1/health` 保留，并在服务未就绪时返回 HTTP 503。S3
-模式会以只读方式检查两个已配置 bucket 是否存在；每个依赖探针受
-`HEALTH_DEPENDENCY_TIMEOUT_SECONDS` 限制。
-
-`live` 和 `ready` 仅返回聚合诊断数据。面向运维人员的 `deep` 会返回
-存储路径、任务标识和文件名、Worker 名称、GPU 型号/UUID/驱动信息、
-利用率、显存、温度、引擎状态及超期任务。应通过可信网络或 API 网关
-限制 `deep` 的访问，不要直接暴露到公网。
-
-`WORKER_WATCHDOG_TIMEOUT_SECONDS` 应高于系统允许的最长任务超时。超过该
-时限后 Worker 会主动退出，由 Docker 或其他进程管理器重启。仅当外部
-watchdog 提供等效恢复能力时才建议设为 `0`。
-
-### 监控指标
-
-**队列统计**:
-```bash
-curl http://localhost:8000/api/v1/queue/stats
-```
-
-**任务列表**:
-```bash
-curl http://localhost:8000/api/v1/queue/tasks
-```
-
-## 备份和恢复
-
-### Redis 数据备份
-
-```bash
-# 备份
-docker exec mineru-redis redis-cli SAVE
-docker cp mineru-redis:/data/dump.rdb ./backup/
-
-# 恢复
-docker cp ./backup/dump.rdb mineru-redis:/data/
-docker restart mineru-redis
-```
-
-### 存储备份
-
-**S3 存储**: 使用 S3 的版本控制和备份功能
-
-**本地存储**: 定期备份 `OUTPUT_DIR` 目录
-
-## 安全建议
-
-1. **使用 HTTPS**: 配置反向代理使用 TLS
-2. **Redis 密码**: 生产环境必须设置 Redis 密码
-3. **CORS 限制**: 只允许信任的域名
-4. **文件大小限制**: 防止恶意大文件攻击
-5. **定期更新**: 保持 Docker 镜像和依赖更新
-
-## 性能优化
-
-1. **Worker 数量**: 根据 CPU/GPU 资源调整 Worker 数量
-2. **Redis 优化**: 配置 Redis 持久化和内存限制；`REDIS_DATA_PATH` 必须与 temp/output 分盘
-3. **存储优化**: 使用 SSD 或高性能 S3 服务
-4. **网络优化**: API 和 Worker 部署在同一网络
-
-## 故障恢复
-
-### 服务重启
-
-```bash
-# 重启所有服务
-cd docker && docker compose restart
-
-# 重启特定服务
-cd docker && docker compose restart mineru-api
-cd docker && docker compose restart mineru-worker-cpu
-```
-
-### 数据恢复
-
-- Redis: 从备份恢复 dump.rdb
-- 存储: 从 S3 或本地备份恢复文件
-
-## 更多信息
-
-- [配置参考](CONFIGURATION.md)
-- [故障排除](TROUBLESHOOTING.md)
-- [存储配置](S3_STORAGE.md)
+- 不要把 `/api/v1` 默认档改成 `standard` 或 `advanced`
+- 不要同时启用 `cpu` 和 `gpu`
+- 不要用 `LEGACY_ALLOW_FLASH` 代替 `basic` 做首轮验收（`flash` 公式文本可能为空）
+- 不要把每卡在途或全局槽位默认拉到 12；起点是每卡 2
+- Docling 不在 PDF 首轮验收路径里

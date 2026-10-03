@@ -1,13 +1,11 @@
 <div align="center">
 
-<h1>ThinkParse</h1>
+# ThinkParse
 
-<p><strong>Turn complex documents into clean, structured content through one production-ready API.</strong></p>
+**Enterprise-grade document parsing — from one machine to distributed multi-GPU clusters.**
 
-<p>
-  An open-source document parsing service powered by MinerU, FastAPI, Celery, and Redis.<br />
-  Built for reliable PDF, image, and Office document processing—from one machine to distributed GPU workers.
-</p>
+Open-source system that turns PDFs, scans, and more into clean Markdown and structured results through one production-ready API.
+Built for RAG, knowledge bases, research pipelines, and long-running batch jobs — not just a demo script around a parsing model.
 
 [![CI](https://github.com/wzdavid/ThinkParse/workflows/CI/badge.svg)](https://github.com/wzdavid/ThinkParse/actions)
 [![Release](https://img.shields.io/github/v/release/wzdavid/ThinkParse)](https://github.com/wzdavid/ThinkParse/releases)
@@ -17,198 +15,134 @@
 
 [English](README.md) · [简体中文](README.zh.md)
 
-[Quick start](#quick-start) · [API usage](#api-usage) · [Deployment](docs/DEPLOYMENT.md) · [Configuration](docs/CONFIGURATION.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
+[Quick start](#quick-start) · [Why ThinkParse](#why-thinkparse) · [Docs](docs/README.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
 ## Why ThinkParse?
 
-Document parsing becomes difficult when workloads grow beyond a local script. Large PDFs take time, GPU processes can fail, results may exceed queue storage limits, and production deployments need observable, recoverable workers.
+High-quality engines such as [MinerU](https://github.com/opendatalab/MinerU) solve *how to parse a document*. Production systems still need to answer:
 
-ThinkParse packages the parsing engine behind a stable HTTP API and an asynchronous worker architecture:
+- How do we parse **tens of thousands to millions** of files without client timeouts?
+- How do we use **every GPU**, not just `cuda:0`?
+- How do we keep jobs recoverable when a worker or engine restarts?
+- How do we cancel, retry, observe, and clean up at scale?
 
-- **High-quality document parsing** — extracts Markdown, tables, formulas, images, and structured intermediate results with MinerU 3.4.5.
-- **Multiple document formats** — routes PDF and image files through MinerU, and Office, HTML, and text formats through MarkItDown.
-- **Production task workflow** — submit, poll, prioritize, cancel, and inspect parsing jobs without holding client connections open.
-- **CPU and GPU deployment** — start locally with a CPU worker, use one or multiple GPUs on a server, scale workers across nodes, or run Redis+API+Worker+Cleanup in **one container** for schedulers such as Tianhe.
-- **Reliable long-document processing** — reuses the parsing engine between jobs while isolating it for cancellation, timeout recovery, and automatic restart.
-- **Storage that scales** — use local volumes for a single host or S3-compatible storage for distributed deployments.
-- **Operational visibility** — layered health checks expose readiness, queue depth, worker heartbeats, task runtime, and GPU status.
+ThinkParse is the **enterprise document parsing service** for that gap: a stable HTTP API, durable tasks, shared object storage, multi-GPU parallelism, and distributed deployment.
+
+| Capability | What you get |
+|---|---|
+| **Reliable batch parsing** | Submit, poll, cancel; jobs survive restarts; higher `priority` (0–9) runs first without preempting work already on a GPU |
+| **Multi-GPU parallelism** | MinerU runs one process per visible GPU; ThinkParse admits work via slots / in-flight bytes and can spread jobs across multiple engine URLs |
+| **Distributed deployment** | API / reconciler on CPU hosts; GPU nodes only run engines; shared Postgres + S3/MinIO |
+| **Production API** | Async `/api/v1` for existing clients; resource-oriented `/api/v2` for new integrations |
+| **Operational visibility** | Live / ready / deep health, tiers, stats, batches, timing (queue / parse / project) |
+| **Quality outputs** | Markdown, tables, formulas, images, `content_list`, intermediate JSON |
+
+Parsing quality comes from MinerU 4.0 (optional Docling for selected non-PDF formats). ThinkParse owns the **service layer**: scheduling, durability, capacity, and the stable API your apps call.
+
+> Occasional one-off PDFs? Run MinerU alone.  
+> RAG, knowledge bases, literature pipelines, or continuous batch conversion? Use ThinkParse.
 
 ## How it works
 
 ```text
-Client → FastAPI → Redis queue → Celery worker → MinerU / MarkItDown
-   ↑                                              ↓
-   └──────────── status and results ───── local or S3 storage
+Your apps
+   │  POST /api/v1/tasks/submit   or   /api/v2/uploads + /api/v2/jobs
+   ▼
+┌──────────────────────────────────────────────┐
+│ ThinkParse  (API + task orchestration)       │
+│  Gateway · PostgreSQL · Object store · Loop  │
+└──────────────────┬───────────────────────────┘
+                   │ HTTP
+        ┌──────────┴──────────┐
+        ▼                     ▼
+  MinerU 4.0 (multi-GPU)   Docling Serve (optional)
 ```
 
-The API stays lightweight while workers perform the expensive parsing. Add workers without changing the client integration.
+The API stays light. Heavy parsing runs on engine nodes. Scale GPUs or hosts without changing how clients submit work.
 
 ## Quick start
 
-### Requirements
-
-- Docker with Docker Compose
-- Optional: NVIDIA GPU, NVIDIA Container Toolkit, and sufficient VRAM for GPU parsing
-
-> The first build or first CPU parse may take longer while dependencies and models are downloaded.
-
-### 1. Clone and configure
+**Requirements:** Docker. For GPU mode: NVIDIA driver + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/).
 
 ```bash
 git clone https://github.com/wzdavid/ThinkParse.git
 cd ThinkParse
 cp .env.example .env
-cp docker/.env.example docker/.env
+# Pick one: COMPOSE_PROFILES=gpu | cpu | (empty → external MinerU)
+# Change POSTGRES_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+
+docker compose --env-file .env -f docker/docker-compose.yml up -d --build
+curl -fsS http://127.0.0.1:8000/api/v1/health/live
+curl -sS http://127.0.0.1:8000/api/v1/health/ready
+curl -sS http://127.0.0.1:8000/api/v2/tiers
 ```
 
-For the easiest local trial, open `docker/.env` and select the CPU profile:
-
-```dotenv
-COMPOSE_PROFILES=redis,mineru-cpu
-```
-
-For an NVIDIA GPU host, use:
-
-```dotenv
-COMPOSE_PROFILES=redis,mineru-gpu
-```
-
-### 2. Build and start
+Submit a document (async — recommended for batch and production):
 
 ```bash
-cd docker
-sh build.sh
-docker compose up -d
-```
-
-### 3. Verify
-
-```bash
-curl http://localhost:8000/api/v1/health/live
-curl http://localhost:8000/api/v1/health/ready
-```
-
-When readiness returns HTTP `200`, open:
-
-- Interactive API documentation: <http://localhost:8000/docs>
-- Service metadata: <http://localhost:8000/>
-
-View logs or stop the stack:
-
-```bash
-docker compose logs -f
-docker compose down
-```
-
-## API usage
-
-ThinkParse provides an asynchronous API for production workloads and a synchronous MinerU-compatible endpoint for simple integrations.
-
-### Recommended: asynchronous task API
-
-Submit a document:
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/tasks/submit" \
+curl -sS \
   -F "file=@document.pdf" \
   -F "backend=pipeline" \
-  -F "lang=en"
+  http://127.0.0.1:8000/api/v1/tasks/submit
 ```
 
-The response contains a `task_id`:
+Poll `GET /api/v1/tasks/{task_id}` until `completed`, `failed`, or `cancelled`.
 
-```json
-{
-  "success": true,
-  "task_id": "abc123",
-  "status": "pending"
-}
-```
-
-Poll until the task reaches `completed`, `failed`, or `cancelled`:
-
-```bash
-curl "http://localhost:8000/api/v1/tasks/abc123"
-```
-
-Cancel a task:
-
-```bash
-curl -X DELETE "http://localhost:8000/api/v1/tasks/abc123"
-```
-
-The asynchronous API is the right choice for batch processing, long-running documents, S3 storage, multiple workers, and multi-node deployments.
-
-### Synchronous compatibility API
-
-For a simple single-host integration that should wait for the result:
-
-```bash
-curl -X POST "http://localhost:8000/file_parse" \
-  -F "files=@document.pdf" \
-  -F "backend=pipeline" \
-  -F "lang_list=en" \
-  -F "parse_method=auto" \
-  -F "return_md=true"
-```
-
-This endpoint follows the MinerU `/file_parse` request style. Prefer the asynchronous API in production because a synchronous request remains open for the entire parse.
-
-See [API Examples](docs/API_EXAMPLES.md) for Python, JavaScript, batch processing, priorities, and error handling.
+Full walkthrough: [Quick start](docs/quickstart.zh.md) · [Deployment](docs/deployment.zh.md).
 
 ## Deployment options
 
-### Single host
+| Mode | When to use | Notes |
+|---|---|---|
+| **CPU** | Local trial, no GPU | `COMPOSE_PROFILES=cpu` — `flash` / `basic` |
+| **GPU (single or multi)** | Production throughput | `COMPOSE_PROFILES=gpu` — one process per visible GPU; tune `MINERU_GPU_CONCURRENCY` and `THINKPARSE_SLOTS` |
+| **External engines** | You already run MinerU | Unset profile; set `MINERU_BASE_URL(S)` |
+| **Distributed** | Separate API and GPU fleets | Shared Postgres + MinIO/S3; multiple MinerU URLs; capacity via slots and in-flight bytes |
 
-- **CPU:** `COMPOSE_PROFILES=redis,mineru-cpu`
-- **Single GPU:** `COMPOSE_PROFILES=redis,mineru-gpu`
-- **Multiple GPUs:** `cd docker && sh gpu-up.sh` (`MINERU_GPU_COUNT`, `MINERU_WORKERS_PER_GPU`)
+Do not enable `cpu` and `gpu` together. Gateway listens on **8000**. See [Deployment](docs/deployment.zh.md) and [Operations](docs/operations.zh.md).
 
-### Distributed deployment
+## API at a glance
 
-Use shared Redis and S3-compatible storage, then run API and worker services on separate hosts. See [Large-scale multi-node deployment](docs/PRODUCTION_MULTI_NODE.md).
+| API | Use |
+|---|---|
+| `/api/v1/tasks/*` | Production async workflow (submit / poll / cancel) |
+| `/file_parse` | Sync convenience only — prefer async in batch |
+| `/api/v2/*` | Uploads, jobs, files, tiers, stats, batches |
 
-### Production checklist
+Engine-native routes stay internal. See the [API reference](docs/api.zh.md).
 
-- Set `ENVIRONMENT=production` and restrict `CORS_ALLOWED_ORIGINS`.
-- Protect Redis with authentication and keep its persistence data on a disk separate from parsing output.
-- Use S3-compatible storage when workers do not share a filesystem.
-- Keep one active MinerU task per worker process (`GPU_WORKER_CONCURRENCY=1`); scale with `sh gpu-up.sh` and `MINERU_WORKERS_PER_GPU`.
-- Restrict `/api/v1/health/deep` to operators because it exposes detailed runtime diagnostics.
+## Who is it for?
 
-## Health and operations
-
-- `GET /api/v1/health/live` — API process liveness
-- `GET /api/v1/health/ready` — Redis, storage, and worker readiness
-- `GET /api/v1/health/deep` — detailed queue, task, engine, and GPU diagnostics
-- `GET /api/v1/queue/stats` — current queue and worker counts
-- `GET /api/v1/queue/tasks` — active and reserved tasks
+- **RAG / knowledge-base teams** — uniform Markdown + structure before chunking and embedding
+- **Research & data platforms** — batch papers, reports, contracts without holding HTTP open
+- **AI product teams** — document parsing as a microservice, without shipping engine deps into every app
+- **Infra / mid-platform** — multi-GPU and multi-node farms with shared storage and clear health signals
 
 ## Documentation
 
-- [Documentation index](docs/README.md)
-- [Deployment guide](docs/DEPLOYMENT.md)
-- [Single-container deployment (Tianhe)](docs/DEPLOYMENT_ALLINONE.md)
-- [Configuration reference](docs/CONFIGURATION.md)
-- [API examples](docs/API_EXAMPLES.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [S3 storage and cleanup](docs/S3_STORAGE.md)
-- [Development guide](docs/DEVELOPMENT.md)
+| Doc | Description |
+|---|---|
+| [Overview](docs/overview.zh.md) | Positioning, goals, non-goals |
+| [Architecture](docs/architecture.zh.md) | System design, engines, data model |
+| [Quick start](docs/quickstart.zh.md) | First successful parse |
+| [Deployment](docs/deployment.zh.md) | Modes, acceptance, troubleshooting |
+| [API](docs/api.zh.md) | `/api/v1` and `/api/v2` |
+| [Operations](docs/operations.zh.md) | Stats, capacity, multi-GPU tuning |
 
-## Contributing
+## Development
 
-Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before contributing, and report security issues according to [SECURITY.md](SECURITY.md).
+```bash
+pip install -r control/requirements.txt
+PYTHONPATH=. python -m unittest discover -s tests -p 'test_control_*.py'
+ruff check control tests
+```
 
 ## Acknowledgments
 
-ThinkParse is built with:
-
-- [MinerU](https://github.com/opendatalab/MinerU) — document parsing engine
-- [MarkItDown](https://github.com/microsoft/markitdown) — Office, HTML, and text conversion
-- [FastAPI](https://fastapi.tiangolo.com/), [Celery](https://docs.celeryq.dev/), and [Redis](https://redis.io/) — API and distributed task infrastructure
+ThinkParse builds on [MinerU](https://github.com/opendatalab/MinerU), optional [Docling](https://github.com/docling-project/docling), FastAPI, PostgreSQL, and S3-compatible storage.
 
 ## License
 
-ThinkParse is released under the [MIT License](LICENSE). Third-party components remain subject to their respective licenses, including the [MinerU Open Source License](https://github.com/opendatalab/MinerU/blob/master/LICENSE.md) and the [MarkItDown MIT License](https://github.com/microsoft/markitdown/blob/main/LICENSE).
+[MIT](LICENSE). Third-party engines remain under their own licenses.
