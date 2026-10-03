@@ -34,7 +34,7 @@ ThinkParse is the **enterprise document parsing service** for that gap: a stable
 |---|---|
 | **Reliable batch parsing** | Submit, poll, cancel; jobs survive restarts; higher `priority` (0–9) runs first without preempting work already on a GPU |
 | **Multi-GPU parallelism** | MinerU runs one process per visible GPU; ThinkParse admits work via slots / in-flight bytes and can spread jobs across multiple engine URLs |
-| **Distributed deployment** | API / reconciler on CPU hosts; GPU nodes only run engines; shared Postgres + S3/MinIO |
+| **Distributed deployment** | API / reconciler on CPU hosts; GPU nodes only run engines; shared Postgres + external S3 |
 | **Production API** | Async `/api/v1` for existing clients; resource-oriented `/api/v2` for new integrations |
 | **Operational visibility** | Live / ready / deep health, tiers, stats, batches, timing (queue / parse / project) |
 | **Quality outputs** | Markdown, tables, formulas, images, `content_list`, intermediate JSON |
@@ -99,7 +99,7 @@ Full walkthrough: [Quick start](docs/quickstart.zh.md) · [Deployment](docs/depl
 | **CPU** | Local trial, no GPU | `COMPOSE_PROFILES=cpu` — `flash` / `basic` |
 | **GPU (single or multi)** | Production throughput | `COMPOSE_PROFILES=gpu` — one process per visible GPU; tune `MINERU_GPU_CONCURRENCY` and `THINKPARSE_SLOTS` |
 | **External engines** | You already run MinerU | Unset profile; set `MINERU_BASE_URL(S)` |
-| **Distributed** | Separate API and GPU fleets | Shared Postgres + MinIO/S3; multiple MinerU URLs; capacity via slots and in-flight bytes |
+| **Distributed** | Separate API and GPU fleets | Shared Postgres + external S3; multiple MinerU URLs; capacity via slots and in-flight bytes |
 
 Do not enable `cpu` and `gpu` together. Gateway listens on **8000**. See [Deployment](docs/deployment.zh.md) and [Operations](docs/operations.zh.md).
 

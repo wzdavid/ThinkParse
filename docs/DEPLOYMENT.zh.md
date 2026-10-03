@@ -10,7 +10,8 @@ ThinkParse 支持 CPU 试用、单机多 GPU，以及 API 与引擎分机的分�
 |---|---|---|---|
 | ThinkParse 网关 | `docker/docker-compose.yml` | `0.0.0.0:8000` | 客户端入口 |
 | ThinkParse 协调器 | 同一 compose | 不对外 | 投递、轮询引擎、投影 |
-| PostgreSQL、MinIO | 同一 compose | 仅 compose 网络 | 任务与对象；默认不映射宿主机 |
+| PostgreSQL | 同一 compose | 仅 compose 网络 | 任务状态 |
+| 对象目录 | 同一 compose 的卷 `thinkparse_objects` | 不映射宿主机 | 原文与结果。多机改为外部 S3，compose 不另起对象服务 |
 | MinerU Router | `cpu` 或 `gpu` profile | 网络内 `mineru-router:8002` | `external` 模式不启动 |
 
 客户端只访问 **8000**。MinerU `8002` 不映射到宿主机。
@@ -29,7 +30,9 @@ ThinkParse 支持 CPU 试用、单机多 GPU，以及 API 与引擎分机的分�
 
 同时写 `cpu,gpu` 时 compose 会因容器名冲突拒绝启动——这是故意的。
 
-启动前修改 `POSTGRES_PASSWORD`、`MINIO_ROOT_USER`、`MINIO_ROOT_PASSWORD`。密码拼进连接串时请只用字母数字。
+启动前修改 `POSTGRES_PASSWORD`。密码拼进连接串时请只用字母数字。
+
+单机不设 `THINKPARSE_S3_ENDPOINT`。网关和协调器共用卷 `thinkparse_objects`。多机时网关与协调器必须设同一个外部 S3 的 endpoint、密钥和桶名；本地卷在设了 endpoint 之后不再被使用。
 
 构建源默认 Docker Hub / PyPI。国内可按 `.env.example` 设置 `MINERU_*_BASE_IMAGE`、`CONTROL_BASE_IMAGE`、`PIP_INDEX_URL`。模型默认 `modelscope`，海外可设 `MINERU_DOWNLOAD_SOURCE=huggingface`。
 

@@ -3,14 +3,16 @@
 # (or MINERU_BASE_URLS) to an existing MinerU 4.0 service.
 # MinerU listens on the compose network as mineru-router:8002 and is not published on the host.
 # ThinkParse does not load CUDA.
+# Objects default to the shared local volume. Set THINKPARSE_S3_ENDPOINT for an external S3.
 
 name: thinkparse
 
 x-control-env: &control-env
   THINKPARSE_DATABASE_URL: postgresql://${POSTGRES_USER:-thinkparse}:${POSTGRES_PASSWORD:-thinkparse}@postgres:5432/${POSTGRES_DB:-thinkparse}
-  THINKPARSE_S3_ENDPOINT: http://minio:9000
-  THINKPARSE_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-thinkparse}
-  THINKPARSE_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-thinkparse-secret}
+  THINKPARSE_OBJECT_DIR: /var/lib/thinkparse/objects
+  THINKPARSE_S3_ENDPOINT: ${THINKPARSE_S3_ENDPOINT:-}
+  THINKPARSE_S3_ACCESS_KEY: ${THINKPARSE_S3_ACCESS_KEY:-}
+  THINKPARSE_S3_SECRET_KEY: ${THINKPARSE_S3_SECRET_KEY:-}
   THINKPARSE_S3_BUCKET: ${THINKPARSE_S3_BUCKET:-thinkparse}
   THINKPARSE_REQUIRE_POSTGRES: "1"
   DOCLING_BASE_URL: ${DOCLING_BASE_URL:-}
@@ -24,11 +26,12 @@ x-control-env: &control-env
   THINKPARSE_ACCEPTED_TIERS: ${THINKPARSE_ACCEPTED_TIERS:-}
   LEGACY_ALLOW_FLASH: ${LEGACY_ALLOW_FLASH:-false}
 
+x-control-volumes: &control-volumes
+  - thinkparse_objects:/var/lib/thinkparse/objects
+
 x-control-depends: &control-depends
   postgres:
     condition: service_healthy
-  minio:
-    condition: service_started
   mineru-cpu:
     condition: service_healthy
     required: false
@@ -55,15 +58,6 @@ x-mineru-health: &mineru-health
   start_period: 600s
 
 services:
-  minio:
-    image: minio/minio
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-thinkparse}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-thinkparse-secret}
-    volumes:
-      - thinkparse_minio:/data
-
   postgres:
     image: postgres:16
     environment:
@@ -177,6 +171,7 @@ services:
       - "${THINKPARSE_PORT:-8000}:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes: *control-volumes
     depends_on: *control-depends
     restart: unless-stopped
     command: ["python", "-m", "control.gateway"]
@@ -187,10 +182,11 @@ services:
       <<: *control-env
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes: *control-volumes
     depends_on: *control-depends
     restart: unless-stopped
     command: ["python", "-m", "control.reconciler"]
 
 volumes:
   thinkparse_pg:
-  thinkparse_minio:
+  thinkparse_objects:

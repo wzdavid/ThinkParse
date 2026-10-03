@@ -34,7 +34,7 @@ ThinkParse 就是补这一层的**企业级文档解析系统**：稳定 API、�
 |---|---|
 | **大批量稳定可靠解析** | 提交 / 轮询 / 取消；任务可恢复；`priority`（0–9，越大越优先）可插队，不打断已在解析的任务 |
 | **多 GPU 并行处理** | 引擎侧每张可见 GPU 一个解析进程；ThinkParse 用槽位与在途字节控并发，并可向多台引擎分摊 |
-| **分布式部署** | API 与协调器可在 CPU 机；GPU 机只跑引擎；共享 Postgres + S3/MinIO |
+| **分布式部署** | API 与协调器可在 CPU 机；GPU 机只跑引擎；共享 Postgres + 外部 S3 |
 | **生产级 API** | `/api/v1` 异步任务；`/api/v2` 上传 / 任务 / 文件 / 批次 |
 | **可运维** | 分层健康检查、档位发现、统计、批次、排队 / 解析 / 投影耗时 |
 | **高质量输出** | Markdown、表格、公式、图片、`content_list`、中间 JSON |
@@ -101,7 +101,7 @@ curl -sS \
 | **CPU** | 本机试用 | `COMPOSE_PROFILES=cpu`，档位 `flash` / `basic` |
 | **GPU（单卡 / 多卡）** | 生产吞吐 | `COMPOSE_PROFILES=gpu`，每张可见卡一个进程；调节 `MINERU_GPU_CONCURRENCY` 与 `THINKPARSE_SLOTS` |
 | **外部引擎** | 已有 MinerU | 清空 profile，配置 `MINERU_BASE_URL(S)` |
-| **分布式** | API 与 GPU 分机 | 共享 Postgres + MinIO/S3；多 MinerU 地址；用槽位与在途字节控容量 |
+| **分布式** | API 与 GPU 分机 | 共享 Postgres + 外部 S3；多 MinerU 地址；用槽位与在途字节控容量 |
 
 不要同时开 `cpu` 与 `gpu`。网关端口 **8000**。详见 [部署](docs/deployment.zh.md) 与 [运维与算力](docs/operations.zh.md)。
 

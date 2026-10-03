@@ -20,7 +20,7 @@ ThinkParse 作为企业级文档解析服务，对外只暴露两套产品接口
 - 请求：`multipart/form-data`，文件字段名 `file`。档位等可选表单见 [架构 · 档位映射](architecture.zh.md#档位与兼容参数)。
 - 可选表单 `priority`：整数 `0`–`9`，越大越优先，默认 `0`。同优先级按提交时间。只影响还在排队、尚未交给引擎的任务；已在解析的任务不会被打断。超出范围返回 `400`。
 - 成功：`200`，JSON 至少含 `success: true`、`task_id`、`status: "pending"`、`file_name`、`created_at`、`backend`、`priority`。
-- 文件过大：`413`。本地对象目录水位不足：`507`（S3/MinIO 不做此项本地检查）。
+- 文件过大：`413`。本地对象目录水位不足：`507`（外部 S3 不做此项本地检查）。
 - `task_id` 由 ThinkParse 生成，不是 MinerU 的 `job_id`。
 
 `POST /file_parse`：内部创建同一任务并等待终态，返回与 `GET /api/v1/tasks/{id}` 相同的 JSON。新集成请勿使用；超时后等待结束，任务仍可在后台继续。

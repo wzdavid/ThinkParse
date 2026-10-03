@@ -4,7 +4,7 @@
 
 Enterprise document parsing system rebuilt for MinerU 4.0 and durable orchestration.
 
-- Persistent jobs in PostgreSQL; sources and artifacts in MinIO or a local directory
+- Persistent jobs in PostgreSQL; sources and artifacts on a local directory, or external S3 when several hosts share them
 - Gateway + reconciler (no Celery / Redis task bus)
 - Multi-GPU and distributed-friendly deploy modes: `gpu`, `cpu`, `external`
 - Public `/api/v1` (async tasks) and `/api/v2` (uploads, jobs, files, tiers, stats, batches)

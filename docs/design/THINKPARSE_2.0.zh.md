@@ -86,7 +86,7 @@ ThinkExtract / ThinkDoc
 数据放在两处：
 
 - **任务库**用 PostgreSQL。任务状态、引擎引用、取消、尝试次数、投影是否就绪，都以此为准。单机开发可以用同一套 schema 跑在容器里的 Postgres，不另做一套 SQLite 语义。
-- **对象存储**用 S3 兼容实现（生产 MinIO 或云 S3，单机可落本地目录适配器）。原文按 SHA-256 存一份。产物按任务存放。不使用 Redis。多个协调器同时跑时，靠任务行上的 `SKIP LOCKED` 分工。
+- **对象存储**单机用本地目录，多机对接外部 S3。Compose 不另起对象服务。原文按 SHA-256 存一份。产物按任务存放。不使用 Redis。多个协调器同时跑时，靠任务行上的 `SKIP LOCKED` 分工。
 
 1.x 的 Celery 队列、线程池 worker、`MinerUEngineProcess` 删除。协调器是一个进程里的循环，只做 HTTP 和落盘。解析并发由 MinerU 的 `--worker-concurrency` 和 ThinkParse 的每台上游槽位一起限制。
 
@@ -104,7 +104,7 @@ ThinkParse 不按某一台机器定死。控制面三种模式都一样，不装
 
 `cpu` 和 `gpu` 两个服务共用容器名 `thinkparse-mineru`，同时启用时 `docker compose` 直接报错。
 
-构建源（vLLM / Python 基础镜像、PyPI 索引、模型源）都是参数，默认是全球源。国内镜像只是 `.env` 里的一组取值，不写进 Dockerfile。PostgreSQL 与 MinIO 的口令也从 `.env` 读取。
+构建源（vLLM / Python 基础镜像、PyPI 索引、模型源）都是参数，默认是全球源。国内镜像只是 `.env` 里的一组取值，不写进 Dockerfile。PostgreSQL 口令从 `.env` 读取。外部 S3 的 endpoint 与密钥也从 `.env` 读取，未设置时用本地目录。
 
 `standard` 这个 worker 档包含四档请求，GPU 默认因此能接 MinerU 的全部请求。显存小的卡设 `MINERU_GPU_TIER=basic`，不下载 VLM 权重。CPU 模式没有 VLM。
 
@@ -342,7 +342,7 @@ MinerU 明确拒绝的请求（HTTP 4xx，408/409/425/429 除外）直接把任�
 thinkparse-gateway
 thinkparse-reconciler
 postgres
-minio 或本地对象目录
+本地对象目录（多机改为外部 S3）
 mineru-router
   └─ api-server @ GPU0
   └─ api-server @ GPU1

@@ -8,7 +8,7 @@ ThinkParse 不永久保存上传文件、解析过程中的临时文件和解析
 
 ## 对象存储
 
-Compose 使用 MinIO，桶名默认 `thinkparse`，卷是 `thinkparse_minio`。本地目录存储只用于不用 S3 的开发运行。MinIO 写满时提交不会返回 507；本地目录空间低于 `THINKPARSE_FREE_MIN_BYTES`（默认 8 GiB）时才会拒绝新提交。
+Compose 默认把原文和结果放在卷 `thinkparse_objects`，网关和协调器挂的是同一目录。多机部署设置 `THINKPARSE_S3_ENDPOINT` 后改走外部 S3，桶名默认 `thinkparse`。本地目录剩余空间低于 `THINKPARSE_FREE_MIN_BYTES`（默认 8 GiB）时拒绝新提交（HTTP 507）。外部 S3 的容量由存储侧限制，提交时不探测本地剩余空间。
 
 | 对象 | 键 | 保留 | 谁删除 |
 |---|---|---|---|
@@ -23,7 +23,7 @@ Compose 使用 MinIO，桶名默认 `thinkparse`，卷是 `thinkparse_minio`。�
 
 ## MinerU 容器
 
-MinerU 不把结果写进 MinIO。它在自己的临时目录里放两份东西：Router 为了跨进程重传而留的原文副本，以及每个 worker 上的原文 blob 和结果 zip。解析函数自己的工作目录在函数返回时删除。模型权重在镜像里，不随任务增长。
+MinerU 不把结果写进 ThinkParse 的对象目录。它在自己的临时目录里放两份东西：Router 为了跨进程重传而留的原文副本，以及每个 worker 上的原文 blob 和结果 zip。解析函数自己的工作目录在函数返回时删除。模型权重在镜像里，不随任务增长。
 
 ThinkParse 在下面这些时刻调用 `DELETE /v1/files/{id}`，删掉原文、zip，以及 markdown / middle 的 file id：
 

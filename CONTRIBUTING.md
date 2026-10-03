@@ -11,7 +11,7 @@ Product docs: [`docs/`](docs/README.md). Prefer those over archived drafts in [`
 ## Setup
 
 - Python 3.12 recommended (3.10+ supported)
-- Docker when you need PostgreSQL and MinIO
+- Docker when you need PostgreSQL. Object bytes use a local directory unless `THINKPARSE_S3_ENDPOINT` points at an external S3
 
 ```bash
 pip install -r control/requirements-dev.txt

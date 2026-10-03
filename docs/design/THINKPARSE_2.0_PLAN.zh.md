@@ -11,7 +11,7 @@
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
 | M1 控制面 | 兼容网关、投影器、MinerU 4.0 HTTP 客户端、协调器、契约测试 | 已实现 |
-| M2 持久化部署 | PostgreSQL 任务库、MinIO 对象存储、网关与协调器分进程 | 已实现，本机 Postgres 与 MinIO 测试通过 |
+| M2 持久化部署 | PostgreSQL 任务库、本地目录对象存储（多机接外部 S3）、网关与协调器分进程 | 已实现 |
 | M3 投影夹具 | 用真实 MinerU 4.0 产物核对 ThinkExtract 要读的字段 | CPU 上已用 `basic`（第 10/15/27 页）和 `flash`（前 3 页）跑过 `2604.04771v2.pdf`。GPU 上的整篇 `basic` 还未跑 |
 | M4 部署模式 | `external` / `cpu` / `gpu`。GPU 用全部可见卡和 `standard` 权重 | compose 已拆成两个 profile。GPU 整机实测还没做 |
 | M5 `/api/v2` | 产品接口：上传、任务、文件、档位、统计、批次。内部再调用 MinerU `/v1` | 已挂到 `/api/v2`。网关不暴露 MinerU `/v1`。档位是各 MinerU 的并集，再与 `THINKPARSE_ACCEPTED_TIERS` 求交 |
@@ -32,7 +32,7 @@ control/                 2.0 控制面，不加载 CUDA
   docling.py             docling-serve HTTP，只接非 PDF
   project.py             MinerU middle → 3.x 形状；Docling 保留 docling_document
   store.py               PostgreSQL 与内存任务库
-  objects.py             本地目录或 S3/MinIO
+  objects.py             本地目录；设置 endpoint 后走外部 S3
 docker/docker-compose.yml    cpu 与 gpu 两个 profile，别名都是 mineru-router
 docker/mineru.Dockerfile      GPU，默认下载 standard
 docker/mineru-cpu.Dockerfile  CPU，ONNX basic

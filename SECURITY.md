@@ -58,7 +58,7 @@ When reporting a vulnerability, please include:
 
 2. **Environment Variables**
    - Never commit `.env` files to version control
-   - Use strong, unique passwords for Redis, S3, and MinIO
+   - Use a strong `POSTGRES_PASSWORD`. When `THINKPARSE_S3_ENDPOINT` is set, use a strong S3 secret
    - Rotate credentials regularly
    - Use secrets management tools in production (e.g., HashiCorp Vault, AWS Secrets Manager)
 
