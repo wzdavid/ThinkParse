@@ -12,7 +12,7 @@ ThinkParse 支持 CPU 试用、单机多 GPU，以及 API 与引擎分机的分�
 | ThinkParse 协调器 | 同一 compose | 不对外 | 投递、轮询引擎、投影 |
 | PostgreSQL | 同一 compose | 仅 compose 网络 | 任务状态 |
 | 对象目录 | 同一 compose 的卷 `thinkparse_objects` | 不映射宿主机 | 原文与结果。多机改为外部 S3，compose 不另起对象服务 |
-| MinerU Router | `cpu` 或 `gpu` profile | 网络内 `mineru-router:8002` | `external` 模式不启动 |
+| MinerU | `cpu`，或 `gpu` / `gpu,gpu1` | 一张卡：`mineru-router:8002`。两张卡：`mineru-gpu0:8002` 与 `mineru-gpu1:8002` | 每个容器只看见一张卡。`external` 模式不启动 |
 
 客户端只访问 **8000**。MinerU `8002` 不映射到宿主机。
 
@@ -22,7 +22,7 @@ ThinkParse 支持 CPU 试用、单机多 GPU，以及 API 与引擎分机的分�
 
 | 模式 | `.env` | 宿主机要求 | 档位 |
 |---|---|---|---|
-| `gpu` | `COMPOSE_PROFILES=gpu` | Docker、CUDA 可用的 NVIDIA 驱动、NVIDIA Container Toolkit | `MINERU_GPU_TIER=standard`：四档；`=basic`：`flash`、`basic`（不下载 VLM，适合小显存） |
+| `gpu` | 一张卡：`COMPOSE_PROFILES=gpu`。两张卡：`COMPOSE_PROFILES=gpu,gpu1`，并设置下面的 `MINERU_BASE_URLS` 与 `THINKPARSE_SLOTS` | Docker、CUDA 可用的 NVIDIA 驱动、NVIDIA Container Toolkit | `MINERU_GPU_TIER=standard`：四档；`=basic`：`flash`、`basic`（不下载 VLM，适合小显存） |
 | `cpu` | `COMPOSE_PROFILES=cpu` | Docker | `flash`、`basic` |
 | `external` | 清空 `COMPOSE_PROFILES`，设置 `MINERU_BASE_URL(S)` | Docker | 该 MinerU 报告的档位 |
 
@@ -41,7 +41,7 @@ docker compose --env-file .env -f docker/docker-compose.yml config --services
 docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 ```
 
-先用 `config --services` 确认：`gpu` 有 `mineru-gpu`，`cpu` 有 `mineru-cpu`，`external` 两者都没有。
+先用 `config --services` 确认：一张卡有 `mineru-gpu0`，两张卡还有 `mineru-gpu1`，`cpu` 有 `mineru-cpu`，`external` 没有这些引擎。
 
 第一次构建：
 
@@ -52,11 +52,22 @@ docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 
 ### 并发起点
 
-- `gpu`：容器内全部可见 GPU；每卡一进程；`MINERU_GPU_CONCURRENCY` 默认 2。部分卡用 `NVIDIA_VISIBLE_DEVICES`。
+- `gpu`：每个 MinerU 容器只绑定一张卡，容器内 `--local-gpus auto` 只会看到这一张。`MINERU_GPU_CONCURRENCY` 是这一张卡上的在途数，默认 2。两张卡要同时写 `COMPOSE_PROFILES=gpu,gpu1`。
 - `cpu`：单 worker；`MINERU_CPU_CONCURRENCY` 默认 1。
 - 窗口默认 8；PDF 渲染与数值库线程默认 1。
 
-ThinkParse 按**每台** MinerU 的槽位放行。未写 `THINKPARSE_SLOTS` 时，每台用 `THINKPARSE_MAX_INFLIGHT`（默认 4）。GPU Router 建议写成「可见卡数 × `MINERU_GPU_CONCURRENCY`」。在途原文另有字节闸：`THINKPARSE_INFLIGHT_BYTE_LIMIT`（默认 1 GiB）。占用见 `GET /api/v2/stats`。
+ThinkParse 按**每个 MinerU 地址**的槽位放行。未写 `THINKPARSE_SLOTS` 时，每个地址用 `THINKPARSE_MAX_INFLIGHT`（默认 4）。两张卡时写成和 `MINERU_BASE_URLS` 等长的列表，每一项等于 `MINERU_GPU_CONCURRENCY`，例如并发 2 则 `THINKPARSE_SLOTS=2,2`。在途原文另有字节闸：`THINKPARSE_INFLIGHT_BYTE_LIMIT`（默认 1 GiB）。占用见 `GET /api/v2/stats`。
+
+两张卡的 `.env`：
+
+```bash
+COMPOSE_PROFILES=gpu,gpu1
+MINERU_BASE_URLS=http://mineru-gpu0:8002,http://mineru-gpu1:8002
+MINERU_GPU_CONCURRENCY=2
+THINKPARSE_SLOTS=2,2
+```
+
+`MINERU_BASE_URL` 不要写成逗号列表。同一个 Router 看见两张卡时，协调器的上传会固定落在其中一张卡上，另一张卡的利用率会一直是 0。
 
 ```bash
 docker compose --env-file .env -f docker/docker-compose.yml ps
@@ -66,7 +77,7 @@ curl -sS http://127.0.0.1:8000/api/v2/tiers
 - `discovered: true`：已从上游读到档位。
 - `discovered: false`：上游尚未可达，列表只是配置允许值；先排障再压测。
 
-多张卡共用一个 Router 时不要设 `MINERU_BASE_URLS`。只有多台独立 Router 才用逗号列表。
+同一台机器上的两张卡用两个 MinerU 地址。多台机器同样用 `MINERU_BASE_URLS`，每台机器上的每张卡各一个地址。
 
 `/api/v1` 默认档始终是 `basic`。GPU 能跑 `standard` 不等于应改兼容客户端的默认档。
 

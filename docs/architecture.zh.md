@@ -150,7 +150,7 @@ Projector
 
 ## 分布式与多 GPU
 
-- **多 GPU（单机）**：MinerU Router 的 `--local-gpus auto` 为每张可见卡起一个解析进程；ThinkParse **不**按 device id 绑核，只用 `THINKPARSE_SLOTS`（建议 = 卡数 × 每卡在途）与在途字节闸放行任务。
+- **多 GPU（单机）**：每张卡一个 MinerU 容器，容器只看见这一张卡。ThinkParse 用 `MINERU_BASE_URLS` 与 `THINKPARSE_SLOTS` 按地址分摊，不把多张卡放进同一个 Router。
 - **多机 / 多引擎**：网关与协调器连接同一 Postgres 与同一对象存储；每台 GPU 机器只跑引擎。配置多个 `MINERU_BASE_URLS` 时，按在途数与档位能力分摊。
 - **大批量**：用 `/api/v2` 批次与 `/api/v2/stats` 看吞吐与积压，而不是逐任务盯日志。
 

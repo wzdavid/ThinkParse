@@ -6,7 +6,7 @@ ThinkParse 作为企业级解析服务，本身不加载 CUDA；GPU、显存和 
 
 ## 原则
 
-- **单机多 GPU 靠引擎 Router。** MinerU `--local-gpus auto` 每张可见卡一个进程；ThinkParse 只控槽位与在途字节，不按 device id 绑任务。
+- **单机多 GPU 是多个 MinerU 地址。** 每个容器只绑定一张卡。ThinkParse 按 `MINERU_BASE_URLS` 与 `THINKPARSE_SLOTS` 分摊，不按 device id 绑任务。同一个 Router 看见多张卡时，一个协调器的任务会留在其中一张卡上。
 - **每卡在途起点是 2。** 加大时每次加 1，看显存、宿主内存和吞吐；顶满就停。
 - ThinkParse **不读** `nvidia-smi`，也不在运行中改 MinerU `--worker-concurrency`。观测告诉你该不该改 `.env` 后重建引擎容器。
 - 日志与统计不含文档正文，不返回上游 `job_id`。
@@ -68,7 +68,7 @@ ThinkParse 作为企业级解析服务，本身不加载 CUDA；GPU、显存和 
 
 | 部署 | 槽位 |
 |---|---|
-| `gpu`，一个 Router | 可见 GPU 数 × `MINERU_GPU_CONCURRENCY`；由 `.env` 的 `THINKPARSE_SLOTS` 写出。不写则用 `THINKPARSE_MAX_INFLIGHT`（默认 4） |
+| `gpu`，每张卡一个 MinerU | 每个地址一项，等于该容器的 `MINERU_GPU_CONCURRENCY`。两张卡示例：`THINKPARSE_SLOTS=2,2`。不写则每个地址用 `THINKPARSE_MAX_INFLIGHT`（默认 4） |
 | `cpu`，一个 Router | `MINERU_CPU_CONCURRENCY`（默认 1）；compose 里 `THINKPARSE_SLOTS` 与之对齐 |
 | `external`，多地址 | `THINKPARSE_SLOTS` 逗号列表，与 `MINERU_BASE_URLS` 一一对应；缺省每台用 `THINKPARSE_MAX_INFLIGHT` |
 

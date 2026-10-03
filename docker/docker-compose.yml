@@ -1,7 +1,10 @@
 # ThinkParse. The gateway publishes 8000, which is the port ThinkExtract already uses.
 # Enable at most one engine profile: cpu or gpu. With neither, set MINERU_BASE_URL
 # (or MINERU_BASE_URLS) to an existing MinerU 4.0 service.
-# MinerU listens on the compose network as mineru-router:8002 and is not published on the host.
+# One GPU: the gpu profile publishes mineru-router:8002.
+# Two GPUs: also enable the gpu1 profile. Each container sees one card
+# (mineru-gpu0:8002 and mineru-gpu1:8002). A single Router will not spread
+# one ThinkParse reconciler across cards. MinerU is not published on the host.
 # ThinkParse does not load CUDA.
 # Objects default to the shared local volume. Set THINKPARSE_S3_ENDPOINT for an external S3.
 
@@ -35,7 +38,10 @@ x-control-depends: &control-depends
   mineru-cpu:
     condition: service_healthy
     required: false
-  mineru-gpu:
+  mineru-gpu0:
+    condition: service_healthy
+    required: false
+  mineru-gpu1:
     condition: service_healthy
     required: false
 
@@ -56,6 +62,38 @@ x-mineru-health: &mineru-health
   timeout: 10s
   retries: 40
   start_period: 600s
+
+x-mineru-gpu: &mineru-gpu
+  build:
+    context: .
+    dockerfile: mineru.Dockerfile
+    args:
+      MINERU_VERSION: ${MINERU_VERSION:-4.0.10}
+      MINERU_GPU_TIER: ${MINERU_GPU_TIER:-standard}
+      MINERU_DOWNLOAD_SOURCE: ${MINERU_DOWNLOAD_SOURCE:-modelscope}
+      VLLM_BASE_IMAGE: ${MINERU_GPU_BASE_IMAGE:-vllm/vllm-openai:v0.21.0}
+      PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+  image: thinkparse-mineru:${MINERU_VERSION:-4.0.10}-gpu-${MINERU_GPU_TIER:-standard}
+  shm_size: ${MINERU_SHM_SIZE:-32gb}
+  ipc: host
+  entrypoint: ["mineru-kit"]
+  command:
+    - router
+    - --host
+    - 0.0.0.0
+    - --port
+    - "8002"
+    - --local-gpus
+    - auto
+    - --worker-tier
+    - ${MINERU_GPU_TIER:-standard}
+    - --worker-concurrency
+    - ${MINERU_GPU_CONCURRENCY:-2}
+    - --preload-models
+  ulimits:
+    memlock: -1
+    stack: 67108864
+  healthcheck: *mineru-health
 
 services:
   postgres:
@@ -107,53 +145,44 @@ services:
         aliases:
           - mineru-router
 
-  mineru-gpu:
-    # Shared with the other engine profile so both cannot run at once.
+  mineru-gpu0:
+    # Same container name as the cpu profile so both cannot run at once.
+    <<: *mineru-gpu
     container_name: thinkparse-mineru
     profiles: ["gpu"]
-    build:
-      context: .
-      dockerfile: mineru.Dockerfile
-      args:
-        MINERU_VERSION: ${MINERU_VERSION:-4.0.10}
-        MINERU_GPU_TIER: ${MINERU_GPU_TIER:-standard}
-        MINERU_DOWNLOAD_SOURCE: ${MINERU_DOWNLOAD_SOURCE:-modelscope}
-        VLLM_BASE_IMAGE: ${MINERU_GPU_BASE_IMAGE:-vllm/vllm-openai:v0.21.0}
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-    image: thinkparse-mineru:${MINERU_VERSION:-4.0.10}-gpu-${MINERU_GPU_TIER:-standard}
-    shm_size: ${MINERU_SHM_SIZE:-32gb}
-    ipc: host
     environment:
       <<: *mineru-env
-      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
-    entrypoint: ["mineru-kit"]
-    command:
-      - router
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8002"
-      - --local-gpus
-      - auto
-      - --worker-tier
-      - ${MINERU_GPU_TIER:-standard}
-      - --worker-concurrency
-      - ${MINERU_GPU_CONCURRENCY:-2}
-      - --preload-models
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    healthcheck: *mineru-health
+      NVIDIA_VISIBLE_DEVICES: "0"
     networks:
       default:
         aliases:
+          - mineru-gpu0
           - mineru-router
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: all
+              device_ids: ["0"]
+              capabilities: [gpu]
+
+  mineru-gpu1:
+    <<: *mineru-gpu
+    container_name: thinkparse-mineru-1
+    profiles: ["gpu1"]
+    environment:
+      <<: *mineru-env
+      NVIDIA_VISIBLE_DEVICES: "1"
+    networks:
+      default:
+        aliases:
+          - mineru-gpu1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["1"]
               capabilities: [gpu]
 
   gateway:
