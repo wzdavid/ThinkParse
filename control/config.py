@@ -39,7 +39,7 @@ class Settings:
     mineru_base_urls: tuple[str, ...] = ()
     docling_base_url: str = ""
     api_key: str = ""
-    result_expires_seconds: int = 24 * 3600
+    result_expires_seconds: int = 3600
     s3_endpoint: str = ""
     s3_access_key: str = ""
     s3_secret_key: str = ""
@@ -78,7 +78,7 @@ class Settings:
             mineru_base_urls=_mineru_urls(),
             docling_base_url=os.getenv("DOCLING_BASE_URL", "").strip().rstrip("/"),
             api_key=os.getenv("THINKPARSE_API_KEY", "").strip(),
-            result_expires_seconds=_env_int("RESULT_EXPIRES_SECONDS", 24 * 3600),
+            result_expires_seconds=_env_int("RESULT_EXPIRES_SECONDS", 3600),
             s3_endpoint=os.getenv("THINKPARSE_S3_ENDPOINT", "").strip().rstrip("/"),
             s3_access_key=os.getenv("THINKPARSE_S3_ACCESS_KEY", "").strip(),
             s3_secret_key=os.getenv("THINKPARSE_S3_SECRET_KEY", "").strip(),

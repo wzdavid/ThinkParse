@@ -2,9 +2,9 @@
 
 ThinkParse 不永久保存上传文件、解析过程中的临时文件和解析结果。这些字节都在对象存储或 MinerU 容器的临时目录里，由协调器或 MinerU 在固定期限后删除。Postgres 里的任务行、上传行和空白 blob 行会留下来，它们不包含文件内容。
 
-持续运行时，磁盘占用有上界：还没结束的任务原文，加上最近 24 小时内已结束任务的原文和结果，再加上最近 6 小时内 MinerU 尚未被主动删掉的草稿。提交速度长期高于解析速度时，未开始的任务会堆积，那是排队，不是清理失效。
+持续运行时，磁盘占用有上界：还没结束的任务原文，加上最近 `RESULT_EXPIRES_SECONDS`（默认 1 小时）内已结束任务的原文和结果，再加上最近 6 小时内 MinerU 尚未被主动删掉的草稿。提交速度长期高于解析速度时，未开始的任务会堆积，那是排队，不是清理失效。
 
-协调器必须在跑。`RESULT_EXPIRES_SECONDS=0` 会留下已结束任务的结果。`MINERU_FILE_RETENTION_SECONDS=0` 会把 MinerU 草稿留到进程退出。生产环境保持默认值。改了清理逻辑之后要重建 `thinkparse-control:2.0` 和 `thinkparse-mineru`，正在跑的旧容器不会自己换上这段行为。
+协调器必须在跑。`RESULT_EXPIRES_SECONDS` 与 `MINERU_FILE_RETENTION_SECONDS` 写在 `.env`（见 `.env.example`），由 compose 传入容器。`RESULT_EXPIRES_SECONDS=0` 会留下已结束任务的结果。`MINERU_FILE_RETENTION_SECONDS=0` 会把 MinerU 草稿留到进程退出。生产环境保持正数。改了清理逻辑或默认值之后要重建 / 重建相关容器，正在跑的旧容器不会自己换上这段行为。
 
 ## 对象存储
 
@@ -14,8 +14,8 @@ Compose 默认把原文和结果放在卷 `thinkparse_objects`，网关和协调
 |---|---|---|---|
 | 未完成的 `/api/v2` 上传 | `uploads/{upload_id}` | 1 小时（`expires_at`） | 协调器每轮清理。完成上传时，字节拷进 `blobs/` 后立刻删掉这份暂存 |
 | 原文 | `blobs/{sha256}` | 还有未过期任务引用它，就保留。全部任务过期后删除。没有任何任务的原文，满 1 小时删除 | 协调器。同一份内容只存一份；最后一个任务过期才删字节 |
-| 解析结果 | `artifacts/{task_id}/` | 任务进入 `completed`、`failed` 或 `cancelled` 之后 24 小时（`RESULT_EXPIRES_SECONDS`，默认 86400） | 协调器按整个前缀删除，包括 `result.md`、`content_list.json`、`middle.json`、`images/`、投影缓存 `native.json` 和 `source-images/` |
-| 失败任务的投影缓存 | `artifacts/{task_id}/native.json` 与 `source-images/` | 任务失败时立刻删 | 协调器。原文和已经写好的结果仍等到 24 小时 |
+| 解析结果 | `artifacts/{task_id}/` | 任务进入 `completed`、`failed` 或 `cancelled` 之后 1 小时（`RESULT_EXPIRES_SECONDS`，默认 3600） | 协调器按整个前缀删除，包括 `result.md`、`content_list.json`、`middle.json`、`images/`、投影缓存 `native.json` 和 `source-images/` |
+| 失败任务的投影缓存 | `artifacts/{task_id}/native.json` 与 `source-images/` | 任务失败时立刻删 | 协调器。原文和已经写好的结果仍等到 `RESULT_EXPIRES_SECONDS` |
 
 过期之后任务状态仍是原来的终态，读取结果会得到 `result expired`，正文为空。任务行还在。
 
@@ -45,11 +45,11 @@ ThinkParse 在下面这些时刻调用 `DELETE /v1/files/{id}`，删掉原文、
 
 ## Docling
 
-Docling 不在 ThinkParse 里落临时文件。结果投影进同一个 `artifacts/{task_id}/`，跟随 24 小时过期。Docling 服务自己的磁盘不在这条清理路径上。
+Docling 不在 ThinkParse 里落临时文件。结果投影进同一个 `artifacts/{task_id}/`，跟随 `RESULT_EXPIRES_SECONDS` 过期。Docling 服务自己的磁盘不在这条清理路径上。
 
 ## 要保持的条件
 
 - 协调器进程在运行（compose 服务 `reconciler`，`restart: unless-stopped`）
-- `RESULT_EXPIRES_SECONDS` 保持正数，默认 86400
-- `MINERU_FILE_RETENTION_SECONDS` 保持正数，compose 默认 21600
+- `RESULT_EXPIRES_SECONDS` 保持正数，默认 3600；需要更长回取窗口时在 `.env` 里调大
+- `MINERU_FILE_RETENTION_SECONDS` 保持正数，默认 21600
 - MinerU 镜像包含 `mineru_file_gc.py`（CPU 与 GPU Dockerfile 都会安装）

@@ -28,6 +28,7 @@ x-control-env: &control-env
   THINKPARSE_INFLIGHT_BYTE_LIMIT: ${THINKPARSE_INFLIGHT_BYTE_LIMIT:-1073741824}
   THINKPARSE_ACCEPTED_TIERS: ${THINKPARSE_ACCEPTED_TIERS:-}
   LEGACY_ALLOW_FLASH: ${LEGACY_ALLOW_FLASH:-false}
+  RESULT_EXPIRES_SECONDS: ${RESULT_EXPIRES_SECONDS:-3600}
 
 x-control-volumes: &control-volumes
   - thinkparse_objects:/var/lib/thinkparse/objects
