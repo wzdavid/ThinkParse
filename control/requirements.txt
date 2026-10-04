@@ -1,6 +1,6 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 python-multipart>=0.0.6
-pydantic>=2.0.0
+pydantic>=2.13.5
 psycopg[binary]>=3.2.0
 boto3>=1.35.0
