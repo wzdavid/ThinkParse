@@ -15,6 +15,9 @@ class AllInOneDeployTests(unittest.TestCase):
         text = ENTRYPOINT.read_text(encoding="utf-8")
         self.assertIn('REDIS_URL="redis://127.0.0.1:6379/0"', text)
         self.assertIn("supervisord", text)
+        # Use PATH supervisord (pip >=4.2.5); hardcoding Debian's binary breaks on 3.12.
+        self.assertRegex(text, r"(?m)^exec supervisord ")
+        self.assertNotRegex(text, r"(?m)^exec /usr/bin/supervisord ")
 
     def test_entrypoint_is_valid_shell(self):
         result = subprocess.run(
@@ -49,6 +52,11 @@ class AllInOneDeployTests(unittest.TestCase):
         self.assertIn("EXPOSE 8000", gpu)
         self.assertIn("FROM python:3.12-slim", cpu)
         self.assertIn("redis-server", cpu)
+        # pip supervisor>=4.2.5 is required on Python 3.12; apt 4.2.1 is not.
+        self.assertIn('"supervisor>=4.2.5"', gpu)
+        self.assertIn('"supervisor>=4.2.5"', cpu)
+        self.assertNotRegex(gpu, r"(?m)^\s*supervisor\s*\\?\s*$")
+        self.assertNotRegex(cpu, r"(?m)^\s*supervisor\s*\\?\s*$")
         self.assertIn("profiles: [\"allinone-gpu\"]", compose)
         self.assertIn("profiles: [\"allinone-cpu\"]", compose)
         self.assertIn("mineru-allinone:latest", compose)

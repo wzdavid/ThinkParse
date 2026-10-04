@@ -112,6 +112,7 @@ docker logs -f thinkparse-allinone
 
 ## 故障排除
 
+`ModuleNotFoundError: No module named 'asynchat'`：镜像仍在用 Debian apt 的 supervisor 4.2.1。请用 1.4.3+ 重新构建（pip 安装 `supervisor>=4.2.5`）。  
 容器已起但 `ready` 一直 503：看日志里 `program:worker` 是否在跑、是否在下载模型。  
 API 报 Redis 连接失败：确认没有覆盖入口脚本之前的进程环境；单容器必须用 `127.0.0.1`。  
 Worker 解析中被 watchdog 杀掉：属预期，supervisord 会重启 `program:worker`，不必整容器重启。

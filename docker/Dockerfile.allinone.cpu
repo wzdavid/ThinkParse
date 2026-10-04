@@ -25,17 +25,18 @@ WORKDIR /app
 
 RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod +x /usr/sbin/policy-rc.d
 
+# Do not apt-install supervisor: Debian's 4.2.1 imports stdlib asynchat,
+# which was removed in Python 3.12. Use pip supervisor>=4.2.5.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         libgl1 \
         libglib2.0-0 \
         procps \
-        redis-server \
-        supervisor && \
+        redis-server && \
     rm -f /usr/sbin/policy-rc.d && \
     rm -rf /var/lib/apt/lists/* && apt-get clean && \
     mkdir -p /data/redis /tmp/mineru_temp /tmp/mineru_output \
-             /var/log/supervisor /var/run
+             /var/log/supervisor /var/run /etc/supervisor
 
 COPY worker/requirements.txt /app/worker/requirements.txt
 COPY api/requirements.txt /app/api/requirements.txt
@@ -45,6 +46,7 @@ RUN pip install --upgrade pip setuptools wheel -i ${PIP_INDEX_URL} && \
         -r /app/worker/requirements.txt \
         -r /app/api/requirements.txt \
         -r /app/cleanup/requirements.txt \
+        "supervisor>=4.2.5" \
         -i ${PIP_INDEX_URL} --break-system-packages
 
 RUN if [ "$SKIP_MODEL_DOWNLOAD" != "true" ]; then \

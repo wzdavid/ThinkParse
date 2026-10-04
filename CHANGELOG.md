@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-10-04
+
+### Fixed
+- All-in-one images no longer crash on Python 3.12 with
+  `ModuleNotFoundError: No module named 'asynchat'`. Debian's apt `supervisor`
+  4.2.1 still imports removed stdlib modules; both GPU and CPU all-in-one
+  Dockerfiles now install `supervisor>=4.2.5` via pip and start that binary
+
 ## [1.4.2] - 2026-09-29
 
 Stop local parse storage from filling the disk and halting Redis.
@@ -214,6 +222,7 @@ Upgrade the parsing engine to **MinerU 3.4.0** and rebrand the project as **Thin
 
 ## Version History
 
+- **1.4.3**: All-in-one images use pip `supervisor>=4.2.5` so Python 3.12 no longer fails on missing `asynchat`
 - **1.4.2**: Disk headroom watermarks so local temp/output cannot fill the disk and stop Redis
 - **1.4.1**: Productized multi-GPU workers via `gpu-up.sh` (`MINERU_GPU_COUNT` × `MINERU_WORKERS_PER_GPU`)
 - **1.4.0**: Single-container GPU/CPU images for Tianhe/HPC; four-container Compose remains default

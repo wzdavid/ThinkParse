@@ -9,15 +9,16 @@ ARG PIP_INDEX_URL=https://pypi.org/simple
 # Prevent apt from trying to start Redis during image build.
 RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod +x /usr/sbin/policy-rc.d
 
+# Do not apt-install supervisor: Debian's 4.2.1 imports stdlib asynchat,
+# which was removed in Python 3.12 (base image). Use pip supervisor>=4.2.5.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         redis-server \
-        supervisor \
         curl && \
     rm -f /usr/sbin/policy-rc.d && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /app /data/redis /tmp/mineru_temp /tmp/mineru_output \
-             /var/log/supervisor /var/run
+             /var/log/supervisor /var/run /etc/supervisor
 
 WORKDIR /app
 
@@ -28,6 +29,7 @@ RUN python3 -m pip install --no-cache-dir \
         -r /app/worker/requirements.txt \
         -r /app/api/requirements.txt \
         -r /app/cleanup/requirements.txt \
+        "supervisor>=4.2.5" \
         -i ${PIP_INDEX_URL} --break-system-packages && \
     python3 -m pip cache purge
 

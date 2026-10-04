@@ -24,4 +24,6 @@ echo "  REDIS_URL=${REDIS_URL}"
 echo "  API=${API_HOST}:${API_PORT}"
 echo "  MINERU_MODEL_SOURCE=${MINERU_MODEL_SOURCE}"
 
-exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.allinone.conf
+# Prefer PATH supervisord from pip (>=4.2.5). Debian /usr/bin/supervisord
+# fails on Python 3.12 with ModuleNotFoundError: asynchat.
+exec supervisord -n -c /etc/supervisor/supervisord.allinone.conf

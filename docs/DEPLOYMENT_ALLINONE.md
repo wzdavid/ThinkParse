@@ -110,6 +110,7 @@ docker logs -f thinkparse-allinone
 
 ## Troubleshooting
 
+`ModuleNotFoundError: No module named 'asynchat'`: the image still has Debian apt `supervisor` 4.2.1. Rebuild from 1.4.3+ so pip installs `supervisor>=4.2.5`.  
 `ready` stays 503: check `program:worker` logs and model download.  
 Redis connection errors: all-in-one must use `127.0.0.1`; the entrypoint overrides compose hostnames.  
 Watchdog stops the Worker: expected; supervisord restarts `program:worker`.
