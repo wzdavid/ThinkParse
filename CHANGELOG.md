@@ -11,4 +11,4 @@ Enterprise document parsing system rebuilt for MinerU 4.0 and durable orchestrat
 - MinerU 4.0 adapter with stable projection for `content_list` / `middle_json`
 - Optional Docling adapter for `.xml` / `.tex` / `.eml`
 
-Earlier 1.x releases remain on git tags through `v1.4.2`.
+Earlier 1.x releases remain on the `1.x` branch and git tags through `v1.4.3`.

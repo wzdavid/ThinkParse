@@ -13,3 +13,7 @@ Superseded by:
 - [../deployment.zh.md](../deployment.zh.md)
 - [../operations.zh.md](../operations.zh.md)
 - [../api.zh.md](../api.zh.md)
+
+Milestone status tables in the drafts may lag the shipped `v2.0.0` product docs; treat the guides above as authoritative.
+
+Milestone status tables in the drafts may lag the shipped `v2.0.0` product docs; treat the guides above as authoritative.

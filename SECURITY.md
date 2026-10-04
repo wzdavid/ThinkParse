@@ -65,7 +65,8 @@ When reporting a vulnerability, please include:
 3. **Network Security**
    - Run services behind a reverse proxy (Nginx, Traefik)
    - Use HTTPS/TLS for all external communications
-   - Restrict Redis access to internal networks only
+   - Keep PostgreSQL (and any external S3) on private networks only
+   - Do not publish MinerU engine ports to the public internet
    - Implement rate limiting on API endpoints
 
 4. **Container Security**
@@ -118,10 +119,10 @@ When reporting a vulnerability, please include:
 
 1. **CORS Configuration**: Default CORS allows all origins (`allow_origins=["*"]`). In production, restrict to specific domains.
 
-2. **Redis Security**: By default, Redis may not require authentication. Ensure Redis is:
-   - Only accessible from internal networks
-   - Protected with a strong password
-   - Using TLS in production
+2. **PostgreSQL / Object Storage**: Task metadata lives in Postgres; source files and artifacts live on a local volume or external S3. Ensure:
+   - Postgres is not publicly reachable and uses a strong password
+   - External S3 credentials are scoped and rotated
+   - Engine (`MinerU`) endpoints stay on the private network
 
 3. **File Storage**: Temporary files may contain sensitive information. Ensure:
    - Proper cleanup of temporary files
@@ -145,7 +146,9 @@ Before deploying to production, ensure:
 
 - [ ] All dependencies are up to date
 - [ ] Strong passwords/credentials are set
-- [ ] Redis is secured and not publicly accessible
+- [ ] PostgreSQL (and external S3, if used) is secured and not publicly accessible
+- [ ] MinerU engine ports are not exposed publicly
+- [ ] `THINKPARSE_API_KEY` is set when `/api/v2` is reachable beyond a trusted network
 - [ ] HTTPS/TLS is enabled
 - [ ] CORS is configured for specific domains
 - [ ] Rate limiting is implemented

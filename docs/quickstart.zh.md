@@ -22,7 +22,7 @@ cp .env.example .env
 | 只有 CPU | `COMPOSE_PROFILES=cpu` |
 | 已有 MinerU 4.0 | 删掉 / 清空 `COMPOSE_PROFILES`，把 `MINERU_BASE_URL` 改成可达地址 |
 
-启动前修改 `POSTGRES_PASSWORD`、`MINIO_ROOT_USER`、`MINIO_ROOT_PASSWORD`。`POSTGRES_PASSWORD` 会拼进连接串，请只用字母和数字。
+启动前修改 `POSTGRES_PASSWORD`。密码会拼进连接串，请只用字母和数字。
 
 国内构建可按 `.env.example` 注释设置镜像与 PyPI 源；模型默认 `modelscope`，海外可设 `MINERU_DOWNLOAD_SOURCE=huggingface`。
 
@@ -35,9 +35,9 @@ docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 
 `config --services` 应看到：
 
-- `gpu` → 含 `mineru-gpu`
+- `gpu` → 含 `mineru-gpu0`（双卡再开 `gpu1` 时还有 `mineru-gpu1`）
 - `cpu` → 含 `mineru-cpu`
-- `external` → 两者都没有
+- `external` → 没有上述引擎服务
 
 第一次构建会下载模型，GPU `standard` 档还包含 VLM 权重，耗时可能较长。`up` 会等 MinerU 健康（`start_period` 最长约 600 秒）再起网关。
 

@@ -25,7 +25,7 @@
 
 - 文档是几千、几万甚至上百万份时，如何稳定排队、异步完成，而不是同步接口超时？
 - 机器上有多张 GPU，如何真正并行，而不是只吃到 `cuda:0`？
-- Worker / 引擎重启后，任务会不会丢？能否取消、重试、可观测？
+- 协调器 / 引擎重启后，任务会不会丢？能否取消、重试、可观测？
 - API 与解析算力如何拆开，单机不够时如何分布式扩展？
 
 ThinkParse 就是补这一层的**企业级文档解析系统**：稳定 API、持久任务、共享对象存储、多 GPU 并行与分布式部署。
@@ -43,8 +43,6 @@ ThinkParse 就是补这一层的**企业级文档解析系统**：稳定 API、�
 
 > 偶尔解析几份 PDF：直接用引擎即可。  
 > 做 RAG、知识库、文献流水线或持续批量转换：用 ThinkParse。
-
-相关介绍也可参考：[开源发布](https://mp.weixin.qq.com/s/jUecLiKLdqx4prEYYHlXjQ) · [企业级异步可扩展](https://mp.weixin.qq.com/s/c88aQmgm8SQqiKP63whjHA) · [多 GPU 大批量](https://mp.weixin.qq.com/s/qjtveaRcpkMQHih8yA0vgQ)。
 
 ## 工作原理
 
@@ -73,7 +71,7 @@ git clone https://github.com/wzdavid/ThinkParse.git
 cd ThinkParse
 cp .env.example .env
 # 三选一：COMPOSE_PROFILES=gpu | cpu | （留空接外部 MinerU）
-# 修改 POSTGRES_PASSWORD、MINIO_ROOT_USER、MINIO_ROOT_PASSWORD
+# 修改 POSTGRES_PASSWORD（请只用字母和数字）
 
 docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 curl -fsS http://127.0.0.1:8000/api/v1/health/live
@@ -99,7 +97,7 @@ curl -sS \
 | 模式 | 场景 | 说明 |
 |---|---|---|
 | **CPU** | 本机试用 | `COMPOSE_PROFILES=cpu`，档位 `flash` / `basic` |
-| **GPU（单卡 / 多卡）** | 生产吞吐 | `COMPOSE_PROFILES=gpu`，每张可见卡一个进程；调节 `MINERU_GPU_CONCURRENCY` 与 `THINKPARSE_SLOTS` |
+| **GPU（单卡 / 多卡）** | 生产吞吐 | 单卡：`COMPOSE_PROFILES=gpu`；双卡：`gpu,gpu1` 并配置 `MINERU_BASE_URLS` / `THINKPARSE_SLOTS`；调节 `MINERU_GPU_CONCURRENCY` |
 | **外部引擎** | 已有 MinerU | 清空 profile，配置 `MINERU_BASE_URL(S)` |
 | **分布式** | API 与 GPU 分机 | 共享 Postgres + 外部 S3；多 MinerU 地址；用槽位与在途字节控容量 |
 

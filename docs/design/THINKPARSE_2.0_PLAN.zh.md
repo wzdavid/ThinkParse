@@ -1,10 +1,10 @@
 # ThinkParse 2.0 开发计划
 
-状态：控制面可在 GPU 机器上联调；双卡部署和现网切换未做  
+状态：**历史里程碑底稿**（以产品文档与 `v2.0.0` 为准；下列「未做」条目可能已过时）  
 设计依据：[THINKPARSE_2.0.zh.md](THINKPARSE_2.0.zh.md)  
 日期：2026-09-30
 
-代码只保留 2.0 控制面 `control/`。1.x 的 Celery、worker 和部署文档已删除，旧发布仍在 git 标签 `v1.4.2`。对外任务路径与旧客户端相同。
+代码只保留 2.0 控制面 `control/`。1.x 的 Celery、worker 和部署文档已删除，旧发布仍在 `1.x` 分支与 git 标签（至 `v1.4.3`）。对外任务路径与旧客户端相同。
 
 ## 里程碑
 
@@ -17,7 +17,7 @@
 | M5 `/api/v2` | 产品接口：上传、任务、文件、档位、统计、批次。内部再调用 MinerU `/v1` | 已挂到 `/api/v2`。网关不暴露 MinerU `/v1`。档位是各 MinerU 的并集，再与 `THINKPARSE_ACCEPTED_TIERS` 求交 |
 | M6 Docling | `.xml` / `.tex` / `.eml` 走外部 docling-serve，PDF 仍走 MinerU | 已实现 |
 | M7 切换 | ThinkExtract / ThinkDoc 把 base URL 指到 2.0 网关 | 未开始。仓库里的 Celery 已经删除 |
-| M8 观测与算力 | 任务三段耗时、`/api/v2/stats`、批次、按上游槽位和在途字节放行、档位改并集 | 已实现，见 [OPERATIONS.zh.md](OPERATIONS.zh.md) |
+| M8 观测与算力 | 任务三段耗时、`/api/v2/stats`、批次、按上游槽位和在途字节放行、档位改并集 | 已实现，见 [operations.zh.md](../operations.zh.md) |
 
 旧接口默认档是 `basic`（表单 `backend=pipeline`）。`flash` 要设 `LEGACY_ALLOW_FLASH=true` 才接受。`advanced` 在旧接口上返回 400。显式 `tier=standard` 会被接受，ThinkExtract 默认不会传这个字段。
 
@@ -40,11 +40,11 @@ tests/test_control_*.py
 tests/fixtures/legacy_projection/
 ```
 
-网关监听 `8000`。启用 `gpu` profile 时，MinerU Router 在 compose 网络内的 `mineru-router:8002`，不映射到宿主机。启动命令、健康检查和整篇论文的字段核对写在 [DEPLOYMENT.zh.md](DEPLOYMENT.zh.md)。网关不跑协调循环。`/file_parse` 只等待协调器把任务写到终态。
+网关监听 `8000`。启用 `gpu` profile 时，MinerU Router 在 compose 网络内的 `mineru-router:8002`，不映射到宿主机。启动命令、健康检查和整篇论文的字段核对写在 [deployment.zh.md](../deployment.zh.md)。网关不跑协调循环。`/file_parse` 只等待协调器把任务写到终态。
 
 ## GPU 机器上先做的事
 
-按 [DEPLOYMENT.zh.md](DEPLOYMENT.zh.md) 做。第一轮用 `basic`，每张卡一个推理进程、在途 2。不要把旧客户端默认档改成 `standard`。
+按 [deployment.zh.md](../deployment.zh.md) 做。第一轮用 `basic`，每张卡一个推理进程、在途 2。不要把旧客户端默认档改成 `standard`。
 
 本机 CPU 已经核对过的样本：
 
@@ -63,6 +63,6 @@ M3 的手工检查：对一篇论文走完 `submit` → 协调器 → `GET`，�
 ## 明确留到后面的事
 
 - 不在本仓库改 ThinkExtract / ThinkDoc 的 base URL。这是 M7，要等 GPU 上整篇 `basic` 的字段核对通过。
-- `gpu` 镜像默认带 `standard` 权重。`/api/v1` 仍默认 `basic`。步骤在 [DEPLOYMENT.zh.md](DEPLOYMENT.zh.md)。
+- `gpu` 镜像默认带 `standard` 权重。`/api/v1` 仍默认 `basic`。步骤在 [deployment.zh.md](../deployment.zh.md)。
 - `.xml` / `.tex` / `.eml` 只有配置了 `DOCLING_BASE_URL` 才走 Docling；没配时返回 400。PDF 不走 Docling。
 - `formula_enable=false` 在 `basic` 上只记警告，MinerU 4.0 任务接口没有单独的公式开关。设计第 5 节写的「basic 下关闭公式」还没有引擎侧开关。

@@ -100,7 +100,7 @@ ThinkParse 不按某一台机器定死。控制面三种模式都一样，不装
 | `cpu` | `cpu` | 一个 CPU worker，档位 `basic` | ONNX 小模型，无 CUDA | `flash`、`basic` |
 | `gpu` | `gpu` | 每张可见 GPU 一个进程，档位 `MINERU_GPU_TIER`（默认 `standard`） | CUDA、Torch 小模型；`standard` 另含 VLM 权重 | `standard`：四档；`basic`：`flash`、`basic` |
 
-档位不由部署模式写死。网关定期读每个 MinerU 的 `/v1/tiers`，取所有可达 MinerU 的并集，再与 `THINKPARSE_ACCEPTED_TIERS` 求交，缓存 30 秒。这样 `external` 接的是什么 MinerU、GPU 选了哪一档，都不需要再在 ThinkParse 里重复配置一遍。一个 MinerU 都连不上时退回允许列表，并在 `tiers` 里标 `discovered: false`，任务照常排队，等 MinerU 恢复。多台 MinerU 能力不同时，公布的是并集，投递只送到声明了该档的上游。槽位、在途字节和批次见 [OPERATIONS.zh.md](OPERATIONS.zh.md)。
+档位不由部署模式写死。网关定期读每个 MinerU 的 `/v1/tiers`，取所有可达 MinerU 的并集，再与 `THINKPARSE_ACCEPTED_TIERS` 求交，缓存 30 秒。这样 `external` 接的是什么 MinerU、GPU 选了哪一档，都不需要再在 ThinkParse 里重复配置一遍。一个 MinerU 都连不上时退回允许列表，并在 `tiers` 里标 `discovered: false`，任务照常排队，等 MinerU 恢复。多台 MinerU 能力不同时，公布的是并集，投递只送到声明了该档的上游。槽位、在途字节和批次见 [operations.zh.md](../operations.zh.md)。
 
 `cpu` 和 `gpu` 两个服务共用容器名 `thinkparse-mineru`，同时启用时 `docker compose` 直接报错。
 
@@ -352,7 +352,7 @@ ThinkParse 镜像不含 vLLM、不含 MinerU 权重。MinerU 使用其 4.0 官�
 
 多机：网关和协调器连同一 Postgres 与同一对象存储。每台 GPU 机器只跑 MinerU Router。协调器配置多个 MinerU base URL 时，按在途数选择，不在 ThinkParse 里再做一套 device id 编排。
 
-观测与算力见 [OPERATIONS.zh.md](OPERATIONS.zh.md)。每个任务有排队、解析、投影三段耗时。放行按每台 MinerU 的槽位和在途原文体积，不再用一个全局在途总数卡住所有地址。
+观测与算力见 [operations.zh.md](../operations.zh.md)。每个任务有排队、解析、投影三段耗时。放行按每台 MinerU 的槽位和在途原文体积，不再用一个全局在途总数卡住所有地址。
 
 ## 12. 交付顺序
 

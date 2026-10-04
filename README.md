@@ -71,7 +71,7 @@ git clone https://github.com/wzdavid/ThinkParse.git
 cd ThinkParse
 cp .env.example .env
 # Pick one: COMPOSE_PROFILES=gpu | cpu | (empty → external MinerU)
-# Change POSTGRES_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+# Change POSTGRES_PASSWORD (letters and digits only)
 
 docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 curl -fsS http://127.0.0.1:8000/api/v1/health/live
@@ -97,7 +97,7 @@ Full walkthrough: [Quick start](docs/quickstart.zh.md) · [Deployment](docs/depl
 | Mode | When to use | Notes |
 |---|---|---|
 | **CPU** | Local trial, no GPU | `COMPOSE_PROFILES=cpu` — `flash` / `basic` |
-| **GPU (single or multi)** | Production throughput | `COMPOSE_PROFILES=gpu` — one process per visible GPU; tune `MINERU_GPU_CONCURRENCY` and `THINKPARSE_SLOTS` |
+| **GPU (single or multi)** | Production throughput | One GPU: `COMPOSE_PROFILES=gpu`. Two GPUs: `gpu,gpu1` plus `MINERU_BASE_URLS` / `THINKPARSE_SLOTS`. Tune `MINERU_GPU_CONCURRENCY` |
 | **External engines** | You already run MinerU | Unset profile; set `MINERU_BASE_URL(S)` |
 | **Distributed** | Separate API and GPU fleets | Shared Postgres + external S3; multiple MinerU URLs; capacity via slots and in-flight bytes |
 
