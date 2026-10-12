@@ -6,4 +6,4 @@ external processes (MinerU 4.0, optional Docling). APIs: ``/api/v1`` and
 ``/api/v2``.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"

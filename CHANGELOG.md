@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.1
+
+- Reconciler admits every free MinerU slot in one cycle. Polling and submission run in parallel, bounded by `THINKPARSE_SLOTS` and a 32-thread cap.
+- A claim records its target MinerU URL before submission, so one address cannot take another address's slots.
+- Chinese deployment guide, security and operations notes. Dependabot configuration removed.
+
 ## 2.0.0
 
 Enterprise document parsing system rebuilt for MinerU 4.0 and durable orchestration.
