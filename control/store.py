@@ -49,7 +49,7 @@ class TaskStore:
     def claim_cancelled(self) -> TaskRecord | None:
         raise NotImplementedError
 
-    def claim_id(self, task_id: str) -> TaskRecord | None:
+    def claim_id(self, task_id: str, upstream_base_url: str) -> TaskRecord | None:
         raise NotImplementedError
 
     def list_pending(self, limit: int, now: datetime | None = None, offset: int = 0) -> list[tuple[TaskRecord, int]]:
@@ -162,12 +162,13 @@ class MemoryStore(TaskStore):
                     return task
             return None
 
-    def claim_id(self, task_id: str) -> TaskRecord | None:
+    def claim_id(self, task_id: str, upstream_base_url: str) -> TaskRecord | None:
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None or task.upstream_job_id or task.status not in {"accepted", "dispatching"}:
                 return None
             task.status = "dispatching"
+            task.upstream_base_url = upstream_base_url
             return task
 
     def list_pending(self, limit: int, now: datetime | None = None, offset: int = 0) -> list[tuple[TaskRecord, int]]:
@@ -538,17 +539,18 @@ class PostgresStore(TaskStore):
             conn.commit()
             return None if row is None else _row_to_task(row)
 
-    def claim_id(self, task_id: str) -> TaskRecord | None:
+    def claim_id(self, task_id: str, upstream_base_url: str) -> TaskRecord | None:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                UPDATE tasks SET status = 'dispatching'
+                UPDATE tasks
+                SET status = 'dispatching', upstream_base_url = %s
                 WHERE id = %s
                   AND status IN ('accepted', 'dispatching')
                   AND upstream_job_id IS NULL
                 RETURNING *
                 """,
-                (task_id,),
+                (upstream_base_url, task_id),
             ).fetchone()
             conn.commit()
             return None if row is None else _row_to_task(row)

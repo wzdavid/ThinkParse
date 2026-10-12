@@ -72,7 +72,9 @@ ThinkParse 作为企业级解析服务，本身不加载 CUDA；GPU、显存和 
 | `cpu`，一个 Router | `MINERU_CPU_CONCURRENCY`（默认 1）；compose 里 `THINKPARSE_SLOTS` 与之对齐 |
 | `external`，多地址 | `THINKPARSE_SLOTS` 逗号列表，与 `MINERU_BASE_URLS` 一一对应；缺省每台用 `THINKPARSE_MAX_INFLIGHT` |
 
-某台 `inflight < slots` 才向它投递。任务停在 `accepted`，不失败。
+某台 `inflight < slots` 才向它投递。每轮协调先并行轮询已有在途任务，再按空闲槽位一次性规划并并行投递；线程数不会超过本轮实际认领数且硬上限为 32，认领数不会超过 `THINKPARSE_SLOTS` 的总容量。任务停在 `accepted`，不失败。
+
+分配与认领仍在单线程中完成，先固定目标上游，再并行执行上传和创建解析任务，避免并发投递超出单台槽位或全部落到同一地址。某个上游提交失败只回退分配给它的任务，不阻塞同批其他上游。
 
 `oldest_queued_seconds` 升高，同时每台 `inflight < slots` 且 `healthy` → 先查协调器心跳。`inflight` 顶满且排队涨 → 才考虑把每卡在途从 2 调到 3，重建 MinerU，并重复 [部署](deployment.zh.md) 中的资源记录。
 

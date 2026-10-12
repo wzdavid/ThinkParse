@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 import unittest
 from datetime import timedelta
 from pathlib import Path
@@ -48,6 +50,14 @@ class FakeMinerU:
         self.reject = ""
         self.base_url = ""
         self.tier_names: tuple[str, ...] | None = None
+        self.submit_delay = 0.0
+        self.poll_delay = 0.0
+        self.active_submits = 0
+        self.max_active_submits = 0
+        self.active_polls = 0
+        self.max_active_polls = 0
+        self._submit_lock = threading.Lock()
+        self._poll_lock = threading.Lock()
 
     def tiers(self) -> tuple[str, ...] | None:
         return self.tier_names
@@ -61,22 +71,41 @@ class FakeMinerU:
             raise UpstreamUnavailable("down")
         if self.reject:
             raise UpstreamRejected(self.reject)
-        self.submitted += 1
-        job_id = f"job_{self.submitted}"
-        self.jobs[job_id] = tier
-        return job_id
+        with self._submit_lock:
+            self.active_submits += 1
+            self.max_active_submits = max(self.max_active_submits, self.active_submits)
+        try:
+            if self.submit_delay:
+                time.sleep(self.submit_delay)
+            with self._submit_lock:
+                self.submitted += 1
+                job_id = f"job_{self.submitted}"
+                self.jobs[job_id] = tier
+                return job_id
+        finally:
+            with self._submit_lock:
+                self.active_submits -= 1
 
     def poll(self, job_id: str) -> UpstreamPoll:
-        if self.forget or job_id not in self.jobs:
-            raise UpstreamNotFound(job_id)
-        status = "queued" if self.hold else "completed"
-        return UpstreamPoll(
-            status=status,
-            markdown_file_id="md",
-            middle_file_id="mid",
-            zip_file_id="file_zip",
-            source_file_id="file_src",
-        )
+        with self._poll_lock:
+            self.active_polls += 1
+            self.max_active_polls = max(self.max_active_polls, self.active_polls)
+        try:
+            if self.poll_delay:
+                time.sleep(self.poll_delay)
+            if self.forget or job_id not in self.jobs:
+                raise UpstreamNotFound(job_id)
+            status = "queued" if self.hold else "completed"
+            return UpstreamPoll(
+                status=status,
+                markdown_file_id="md",
+                middle_file_id="mid",
+                zip_file_id="file_zip",
+                source_file_id="file_src",
+            )
+        finally:
+            with self._poll_lock:
+                self.active_polls -= 1
 
     def fetch(self, poll: UpstreamPoll) -> NativeArtifacts:
         del poll
@@ -360,6 +389,71 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(second.submitted, 2)
         waiting = [self.store.get_task(item["task_id"]) for item in created]
         self.assertEqual(sum(1 for task in waiting if task is not None and task.status == "accepted"), 1)
+
+    def test_one_cycle_fills_slots_with_parallel_submissions(self) -> None:
+        first = FakeMinerU()
+        second = FakeMinerU()
+        first.base_url = "http://gpu0"
+        second.base_url = "http://gpu1"
+        first.hold = True
+        second.hold = True
+        first.submit_delay = 0.05
+        second.submit_delay = 0.05
+        reconciler = Reconciler(
+            self.store,
+            self.objects,
+            first,
+            max_inflight=4,
+            max_attempts=3,
+            mineru_pool=[first, second],
+            slots=(2, 2),
+        )
+        for index in range(4):
+            self.plane.submit(f"{index}.pdf", b"x")
+
+        reconciler.run_once()
+
+        self.assertEqual(first.submitted, 2)
+        self.assertEqual(second.submitted, 2)
+        self.assertEqual(first.max_active_submits, 2)
+        self.assertEqual(second.max_active_submits, 2)
+        self.assertEqual(self.store.inflight_count(), 4)
+
+        first.hold = False
+        second.hold = False
+        first.poll_delay = 0.05
+        second.poll_delay = 0.05
+        reconciler.run_once()
+
+        self.assertEqual(first.max_active_polls, 2)
+        self.assertEqual(second.max_active_polls, 2)
+        self.assertEqual(self.store.inflight_count(), 0)
+
+    def test_one_upstream_failure_does_not_block_other_submissions(self) -> None:
+        first = FakeMinerU()
+        second = FakeMinerU()
+        first.base_url = "http://gpu0"
+        second.base_url = "http://gpu1"
+        first.down = True
+        second.hold = True
+        reconciler = Reconciler(
+            self.store,
+            self.objects,
+            first,
+            max_inflight=4,
+            max_attempts=3,
+            mineru_pool=[first, second],
+            slots=(2, 2),
+        )
+        created = [self.plane.submit(f"{index}.pdf", b"x") for index in range(4)]
+
+        reconciler.run_once()
+
+        self.assertEqual(first.submitted, 0)
+        self.assertEqual(second.submitted, 2)
+        rows = [self.store.get_task(item["task_id"]) for item in created]
+        self.assertEqual(sum(1 for task in rows if task is not None and task.status == "running"), 2)
+        self.assertEqual(sum(1 for task in rows if task is not None and task.status == "accepted"), 2)
 
     def test_byte_budget_skips_a_large_task_for_a_smaller_one(self) -> None:
         self.reconciler.inflight_byte_limit = 10

@@ -177,7 +177,7 @@ class NativeApiTests(unittest.TestCase):
             objects = LocalObjectStore(Path(tmp))
             plane = ControlPlane(store, objects, _settings(tmp))
             engine = FakeMinerU()
-            reconciler = Reconciler(store, objects, engine, max_inflight=4, max_attempts=3)
+            reconciler = Reconciler(store, objects, engine, max_inflight=1, max_attempts=3)
             client = TestClient(create_app(plane, MinerUClient("http://mineru.test", transport=lambda *args: (200, b"{}"))))
             ids = []
             for index in range(20):

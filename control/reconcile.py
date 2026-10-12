@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import Callable, Protocol
 
 from control.capacity import Pending, Slot, byte_hold_priority, choose_assignment
 from control.mineru import NativeArtifacts, UpstreamNotFound, UpstreamPoll, UpstreamRejected, UpstreamUnavailable
@@ -26,6 +27,7 @@ from control.project import ProjectionError, project_docling, project_mineru
 from control.store import TaskStore, utcnow
 
 log = logging.getLogger("thinkparse.reconcile")
+_MAX_RECONCILE_THREADS = 32
 
 
 class ParseEngine(Protocol):
@@ -72,15 +74,33 @@ class Reconciler:
     def run_once(self) -> bool:
         self.store.set_meta("reconciler_heartbeat", utcnow().isoformat())
         self.purge_expired()
-        worked = False
-        for task in self.store.list_inflight():
-            self._progress(task)
+        inflight = self.store.list_inflight()
+        self._run_parallel(inflight, self._progress)
+        worked = bool(inflight)
+
+        for _ in range(self._cycle_limit()):
+            cancelled = self.store.claim_cancelled()
+            if cancelled is None:
+                break
+            self._cancel(cancelled)
             worked = True
-        claimed = self._claim()
-        if claimed is None:
-            return worked
-        self._dispatch(claimed)
-        return True
+
+        claimed = self._claim_batch()
+        self._run_parallel(claimed, self._dispatch)
+        return worked or bool(claimed)
+
+    @staticmethod
+    def _run_parallel(tasks: list[TaskRecord], operation: Callable[[TaskRecord], None]) -> None:
+        if not tasks:
+            return
+        if len(tasks) == 1:
+            operation(tasks[0])
+            return
+        max_workers = min(len(tasks), _MAX_RECONCILE_THREADS)
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="thinkparse-reconcile") as executor:
+            futures = [executor.submit(operation, task) for task in tasks]
+            for future in futures:
+                future.result()
 
     def purge_expired(self) -> None:
         self._purge_uploads()
@@ -139,13 +159,40 @@ class Reconciler:
                         self.objects.delete(image_key)
         self.objects.delete(key)
 
-    def _claim(self) -> TaskRecord | None:
-        cancelled = self.store.claim_cancelled()
-        if cancelled is not None:
-            return cancelled
+    def _claim_batch(self) -> list[TaskRecord]:
+        claimed: list[TaskRecord] = []
+        reserved_counts: dict[str, int] = {}
+        reserved_bytes = 0
+        excluded: set[str] = set()
+        for _ in range(self._cycle_limit()):
+            task = self._claim(
+                reserved_counts=reserved_counts,
+                reserved_bytes=reserved_bytes,
+                excluded=excluded,
+            )
+            if task is None:
+                break
+            claimed.append(task)
+            excluded.add(task.id)
+            reserved_counts[task.upstream_base_url] = reserved_counts.get(task.upstream_base_url, 0) + 1
+            reserved_bytes += self.store.blob_size(task.blob_sha256)
+        return claimed
+
+    def _cycle_limit(self) -> int:
+        return max(1, sum(self.slots))
+
+    def _claim(
+        self,
+        *,
+        reserved_counts: dict[str, int] | None = None,
+        reserved_bytes: int = 0,
+        excluded: set[str] | None = None,
+    ) -> TaskRecord | None:
+        reserved_counts = reserved_counts or {}
+        excluded = excluded or set()
         inflight = self.store.list_inflight()
-        counts: dict[str, int] = {}
-        inflight_bytes = 0
+        counts = dict(reserved_counts)
+        inflight_bytes = reserved_bytes
         for running in inflight:
             url = running.upstream_base_url or ""
             counts[url] = counts.get(url, 0) + 1
@@ -159,7 +206,7 @@ class Reconciler:
             pending_rows = self.store.list_pending(200, offset=offset)
             if not pending_rows:
                 break
-            pending = [_pending(task, size) for task, size in pending_rows]
+            pending = [_pending(task, size) for task, size in pending_rows if task.id not in excluded]
             if hold is not None:
                 pending = [job for job in pending if job.priority == hold]
                 if not pending:
@@ -173,7 +220,7 @@ class Reconciler:
                 admit_oversized=False,
             )
             if choice is not None:
-                return self.store.claim_id(choice[0])
+                return self.store.claim_id(choice[0], choice[1])
             if fallback is None and inflight_bytes == 0:
                 fallback = choose_assignment(
                     pending,
@@ -199,7 +246,7 @@ class Reconciler:
                 break
         if fallback is None:
             return None
-        return self.store.claim_id(fallback[0])
+        return self.store.claim_id(fallback[0], fallback[1])
 
     def _slot_states(self, counts: dict[str, int]) -> list[Slot]:
         reported: list[tuple[str, ...] | None] = []
