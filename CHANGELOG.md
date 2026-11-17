@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.0
+
+- Reconciler stays up when MinerU is unreachable, drops a connection, or returns a partial body. Those tasks wait and resume after the engine recovers. `THINKPARSE_MAX_ATTEMPTS` does not fail that wait. Cancelling a task still completes locally if the upstream cannot be reached.
+
 ## 2.0.1
 
 - Reconciler admits every free MinerU slot in one cycle. Polling and submission run in parallel, bounded by `THINKPARSE_SLOTS` and a 32-thread cap.

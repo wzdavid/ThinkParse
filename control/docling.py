@@ -13,6 +13,8 @@ from control.mineru import (
     UpstreamPoll,
     UpstreamRejected,
     UpstreamUnavailable,
+    _call_transport,
+    execute_http,
 )
 
 
@@ -91,7 +93,10 @@ class DoclingClient:
             raise UpstreamRejected(f"docling {path} HTTP {status}")
         if not payload:
             return {}
-        parsed = json.loads(payload.decode("utf-8"))
+        try:
+            parsed = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise UpstreamUnavailable(f"docling {path} returned unreadable JSON") from exc
         if not isinstance(parsed, dict):
             raise UpstreamUnavailable(f"docling {path} returned a non-object")
         return parsed
@@ -101,23 +106,14 @@ class DoclingClient:
         if self.api_key:
             sent["X-Api-Key"] = self.api_key
         if self._transport is not None:
-            status, payload = self._transport(method, path, body, sent)
-            if status == 404:
-                raise UpstreamNotFound(path)
-            if status >= 500:
-                raise UpstreamUnavailable(f"docling HTTP {status}")
-            return status, payload
-        from urllib import error, request
+            status, payload = _call_transport(self._transport, method, path, body, sent)
+        else:
+            from urllib import request
 
-        req = request.Request(self.base_url + path, data=body, headers=sent, method=method)
-        try:
-            with request.urlopen(req, timeout=self.timeout) as response:
-                return response.status, response.read()
-        except error.HTTPError as exc:
-            if exc.code == 404:
-                raise UpstreamNotFound(path) from exc
-            if exc.code >= 500:
-                raise UpstreamUnavailable(f"docling HTTP {exc.code}") from exc
-            return exc.code, exc.read()
-        except error.URLError as exc:
-            raise UpstreamUnavailable(str(exc.reason)) from exc
+            req = request.Request(self.base_url + path, data=body, headers=sent, method=method)
+            status, payload = execute_http(req, self.timeout)
+        if status == 404:
+            raise UpstreamNotFound(path)
+        if status >= 500:
+            raise UpstreamUnavailable(f"docling HTTP {status}")
+        return status, payload

@@ -55,7 +55,10 @@ class TierCatalog:
         per_source: list[tuple[str, ...] | None] = []
         union: set[str] = set()
         for source in self.sources:
-            tiers = source.tiers()
+            try:
+                tiers = source.tiers()
+            except Exception:
+                tiers = None
             if tiers is None:
                 per_source.append(None)
                 continue

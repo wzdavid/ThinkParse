@@ -243,6 +243,15 @@ class TierCatalogTests(unittest.TestCase):
         catalog = TierCatalog([_TierSource(("flash", "basic", "standard", "advanced"))], allowed=("basic", "standard"))
         self.assertEqual(catalog.available(), ("basic", "standard"))
 
+    def test_tier_discovery_survives_a_broken_upstream(self) -> None:
+        class Broken:
+            def tiers(self) -> tuple[str, ...] | None:
+                raise RuntimeError("mineru down")
+
+        catalog = TierCatalog([Broken()], allowed=("basic",))
+        self.assertEqual(catalog.available(), ("basic",))
+        self.assertFalse(catalog.discovered())
+
     def test_falls_back_to_allow_list_when_no_upstream_answers(self) -> None:
         catalog = TierCatalog([_TierSource(None)], allowed=("flash", "basic"))
         self.assertEqual(catalog.available(), ("flash", "basic"))

@@ -69,6 +69,7 @@ class Settings:
             max_inflight=_env_int("THINKPARSE_MAX_INFLIGHT", 4),
             max_file_bytes=_env_int("MAX_FILE_SIZE", 100 * 1024 * 1024),
             free_min_bytes=_env_int("THINKPARSE_FREE_MIN_BYTES", 8 * 1024**3),
+            # Retained for callers. An unreachable MinerU does not fail a task after this many tries.
             max_attempts=_env_int("THINKPARSE_MAX_ATTEMPTS", 5),
             task_timeout_seconds=_env_int("THINKPARSE_TASK_TIMEOUT_SECONDS", 7200),
             legacy_allow_flash=_env_bool("LEGACY_ALLOW_FLASH", False),

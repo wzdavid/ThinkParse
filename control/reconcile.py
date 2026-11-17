@@ -63,6 +63,7 @@ class Reconciler:
         self.docling = docling
         self.mineru_pool = mineru_pool or [engine]
         self.max_inflight = max_inflight
+        # Kept for callers. Upstream outages retry until the engine answers.
         self.max_attempts = max_attempts
         self.task_timeout_seconds = task_timeout_seconds
         self.result_expires_seconds = result_expires_seconds
@@ -74,9 +75,9 @@ class Reconciler:
     def run_once(self) -> bool:
         self.store.set_meta("reconciler_heartbeat", utcnow().isoformat())
         self.purge_expired()
-        inflight = self.store.list_inflight()
-        self._run_parallel(inflight, self._progress)
-        worked = bool(inflight)
+        due = [task for task in self.store.list_inflight() if not self._deferred(task)]
+        self._run_parallel(due, self._progress)
+        worked = bool(due)
 
         for _ in range(self._cycle_limit()):
             cancelled = self.store.claim_cancelled()
@@ -89,16 +90,26 @@ class Reconciler:
         self._run_parallel(claimed, self._dispatch)
         return worked or bool(claimed)
 
-    @staticmethod
-    def _run_parallel(tasks: list[TaskRecord], operation: Callable[[TaskRecord], None]) -> None:
+    def _run_parallel(self, tasks: list[TaskRecord], operation: Callable[[TaskRecord], None]) -> None:
         if not tasks:
             return
+
+        def guarded(task: TaskRecord) -> None:
+            try:
+                operation(task)
+            except Exception as exc:
+                log.exception("reconcile task %s failed", task.id)
+                current = self.store.get_task(task.id) or task
+                if current.status in {COMPLETED, FAILED, CANCELLED}:
+                    return
+                self._retry(current, f"reconcile error: {exc}", keep_job=bool(current.upstream_job_id))
+
         if len(tasks) == 1:
-            operation(tasks[0])
+            guarded(tasks[0])
             return
         max_workers = min(len(tasks), _MAX_RECONCILE_THREADS)
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="thinkparse-reconcile") as executor:
-            futures = [executor.submit(operation, task) for task in tasks]
+            futures = [executor.submit(guarded, task) for task in tasks]
             for future in futures:
                 future.result()
 
@@ -267,6 +278,8 @@ class Reconciler:
         if task.cancel_requested:
             self._cancel(task)
             return
+        if self._deferred(task):
+            return
         blob_key = self.store.blob_key(task.blob_sha256)
         if blob_key is None:
             self._fail(task, "source blob is missing")
@@ -301,16 +314,10 @@ class Reconciler:
         if task.cancel_requested:
             self._cancel(task)
             return
-        if self._timed_out(task):
-            self._cancel(task)
-            current = self.store.get_task(task.id) or task
-            if current.status != CANCELLED:
-                self._fail(current, "task timed out")
-            else:
-                current.status = FAILED
-                current.error_message = "task timed out"
-                current.completed_at = utcnow()
-                self.store.update_task(current)
+        if self._deferred(task):
+            return
+        if task.status == PROJECTING and self._timed_out(task):
+            self._fail_timeout(task)
             return
         if task.status == PROJECTING:
             cached = self._load_cache(task)
@@ -329,12 +336,18 @@ class Reconciler:
             self._fail(task, f"upstream rejected the poll: {exc}")
             return
         except UpstreamUnavailable as exc:
-            self._retry(task, f"upstream unavailable: {exc}")
+            self._retry(task, f"upstream unavailable: {exc}", keep_job=True)
             return
         if poll.status in {"queued", "running", "pending"}:
-            if task.status != RUNNING:
-                before = task.status
-                task.status = RUNNING
+            if self._timed_out(task):
+                self._fail_timeout(task)
+                return
+            before = task.status
+            had_hold = task.error_message is not None or task.next_attempt_at is not None
+            task.status = RUNNING
+            task.error_message = None
+            task.next_attempt_at = None
+            if before != RUNNING or had_hold:
                 self.store.update_task(task)
                 self._log(task, before)
             return
@@ -367,7 +380,7 @@ class Reconciler:
                 self._release_engine_files(client, poll)
             return
         except UpstreamUnavailable as exc:
-            self._retry(task, f"upstream unavailable: {exc}")
+            self._retry(task, f"upstream unavailable: {exc}", keep_job=True)
             return
         self._store_cache(task, native)
         self._release_engine_files(client, poll)
@@ -537,6 +550,20 @@ class Reconciler:
                 return client, choice[1]
         return None
 
+    def _deferred(self, task: TaskRecord) -> bool:
+        return task.next_attempt_at is not None and task.next_attempt_at > utcnow()
+
+    def _fail_timeout(self, task: TaskRecord) -> None:
+        self._cancel(task)
+        current = self.store.get_task(task.id) or task
+        if current.status != CANCELLED:
+            self._fail(current, "task timed out")
+            return
+        current.status = FAILED
+        current.error_message = "task timed out"
+        current.completed_at = utcnow()
+        self.store.update_task(current)
+
     def _timed_out(self, task: TaskRecord) -> bool:
         if self.task_timeout_seconds <= 0 or task.started_at is None:
             return False
@@ -558,9 +585,7 @@ class Reconciler:
                 except (UpstreamUnavailable, UpstreamNotFound, UpstreamRejected):
                     poll = None
                 client.cancel(task.upstream_job_id)
-            except UpstreamUnavailable:
-                return
-            except UpstreamRejected:
+            except (UpstreamUnavailable, UpstreamRejected):
                 pass
             if client is not None and poll is not None:
                 self._release_engine_files(client, poll)
@@ -572,23 +597,33 @@ class Reconciler:
         self.store.update_task(task)
         self._log(task, before)
 
-    def _retry(self, task: TaskRecord, message: str) -> None:
+    def _retry(self, task: TaskRecord, message: str, *, keep_job: bool = False) -> None:
+        """Park a task until the upstream answers again.
+
+        Availability and lost-job failures do not become terminal. A dead MinerU
+        leaves the task queued; the same job is polled again when the download
+        or status call was interrupted.
+        """
         if task.cancel_requested:
             self._cancel(task)
             return
-        task.attempt += 1
-        task.upstream_job_id = None
-        task.upstream_base_url = ""
-        task.error_message = message
-        if task.attempt >= self.max_attempts:
-            self._fail(task, message)
-            return
-        delay = min(60, 2**task.attempt)
         before = task.status
-        task.status = "accepted"
+        task.attempt += 1
+        delay = min(60, 2 ** min(task.attempt, 6))
+        if keep_job and task.upstream_job_id:
+            # The outage does not consume the task timeout.
+            if task.started_at is not None:
+                task.started_at = task.started_at + timedelta(seconds=delay)
+        else:
+            task.upstream_job_id = None
+            task.upstream_base_url = ""
+            task.status = "accepted"
+        task.error_message = message
         task.next_attempt_at = utcnow() + timedelta(seconds=delay)
         self.store.update_task(task)
         self._log(task, before)
+        if task.status == before:
+            log.info("upstream hold task_id=%s delay_s=%s error=%s", task.id, delay, message[:200])
 
     def _fail(self, task: TaskRecord, message: str) -> None:
         self._discard_native(task)

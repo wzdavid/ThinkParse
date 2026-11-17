@@ -1,9 +1,11 @@
+import http.client
 import io
 import json
 import unittest
 import zipfile
+from unittest.mock import patch
 
-from control.mineru import MinerUClient, UpstreamNotFound, UpstreamRejected
+from control.mineru import MinerUClient, UpstreamNotFound, UpstreamRejected, UpstreamUnavailable
 
 
 class MinerUClientTests(unittest.TestCase):
@@ -95,6 +97,21 @@ class MinerUClientTests(unittest.TestCase):
         client = MinerUClient("http://mineru.test", transport=transport)
         with self.assertRaises(UpstreamNotFound):
             client.poll("job_missing")
+
+    def test_truncated_transport_is_unavailable(self) -> None:
+        def transport(method: str, path: str, body: bytes | None, headers: dict[str, str]) -> tuple[int, bytes]:
+            del method, path, body, headers
+            raise http.client.IncompleteRead(b"partial", 20)
+
+        client = MinerUClient("http://mineru.test", transport=transport)
+        with self.assertRaises(UpstreamUnavailable):
+            client.poll("job_1")
+
+    def test_incomplete_socket_read_is_unavailable(self) -> None:
+        client = MinerUClient("http://mineru.test")
+        with patch("urllib.request.urlopen", side_effect=http.client.IncompleteRead(b"x", 9)):
+            with self.assertRaises(UpstreamUnavailable):
+                client.poll("job_1")
 
     def test_completed_job_without_zip_is_rejected(self) -> None:
         def transport(method: str, path: str, body: bytes | None, headers: dict[str, str]) -> tuple[int, bytes]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -23,6 +24,42 @@ class UpstreamRejected(Exception):
 
 
 Transport = Callable[[str, str, bytes | None, dict[str, str]], tuple[int, bytes]]
+
+
+def execute_http(req: request.Request, timeout: float) -> tuple[int, bytes]:
+    """Read one upstream response. Transport failures become UpstreamUnavailable."""
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            return response.status, response.read()
+    except error.HTTPError as exc:
+        try:
+            payload = exc.read()
+        except (TimeoutError, OSError, http.client.HTTPException) as read_exc:
+            raise UpstreamUnavailable(_transport_message(read_exc)) from read_exc
+        return exc.code, payload
+    except error.URLError as exc:
+        raise UpstreamUnavailable(_transport_message(exc)) from exc
+    except (TimeoutError, OSError, http.client.HTTPException) as exc:
+        raise UpstreamUnavailable(_transport_message(exc)) from exc
+
+
+def _call_transport(
+    transport: Transport,
+    method: str,
+    path: str,
+    body: bytes | None,
+    headers: dict[str, str],
+) -> tuple[int, bytes]:
+    try:
+        return transport(method, path, body, headers)
+    except (TimeoutError, OSError, http.client.HTTPException) as exc:
+        raise UpstreamUnavailable(_transport_message(exc)) from exc
+
+
+def _transport_message(exc: BaseException) -> str:
+    reason = getattr(exc, "reason", None)
+    text = str(reason if reason is not None else exc).strip()
+    return text or exc.__class__.__name__
 
 
 @dataclass
@@ -201,7 +238,10 @@ class MinerUClient:
         status, payload = self._request(method, path, raw, headers)
         if not payload:
             return {}
-        parsed = json.loads(payload.decode("utf-8"))
+        try:
+            parsed = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise UpstreamUnavailable(f"MinerU {path} returned unreadable JSON") from exc
         if not isinstance(parsed, dict):
             raise UpstreamUnavailable(f"MinerU {path} returned a non-object")
         if status in {408, 409, 425, 429}:
@@ -221,25 +261,15 @@ class MinerUClient:
         if self.api_key:
             sent["Authorization"] = f"Bearer {self.api_key}"
         if self._transport is not None:
-            status, payload = self._transport(method, path, body, sent)
-            if status == 404:
-                raise UpstreamNotFound(path)
-            if status >= 500:
-                raise UpstreamUnavailable(f"MinerU HTTP {status}")
-            return status, payload
-        req = request.Request(self.base_url + path, data=body, headers=sent, method=method)
-        try:
-            with request.urlopen(req, timeout=self.timeout) as response:
-                return response.status, response.read()
-        except error.HTTPError as exc:
-            payload = exc.read()
-            if exc.code == 404:
-                raise UpstreamNotFound(path) from exc
-            if exc.code >= 500:
-                raise UpstreamUnavailable(f"MinerU HTTP {exc.code}") from exc
-            return exc.code, payload
-        except error.URLError as exc:
-            raise UpstreamUnavailable(str(exc.reason)) from exc
+            status, payload = _call_transport(self._transport, method, path, body, sent)
+        else:
+            req = request.Request(self.base_url + path, data=body, headers=sent, method=method)
+            status, payload = execute_http(req, self.timeout)
+        if status == 404:
+            raise UpstreamNotFound(path)
+        if status >= 500:
+            raise UpstreamUnavailable(f"MinerU HTTP {status}")
+        return status, payload
 
 
 def _error_message(payload: dict[str, Any]) -> str:

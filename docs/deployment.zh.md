@@ -200,8 +200,8 @@ python3 -c 'import json; from pathlib import Path; body=json.loads(Path("/tmp/th
 | `tiers.discovered` false | 读不到任何上游 `/v1/tiers` |
 | 提交 400，`not available in this deployment` | 当前部署无该档 |
 | `failed`，错误来自上游拒绝 | MinerU 4xx；不重试 |
-| `failed`，upstream unavailable | 解析中途上游退出或 URL 错误；compose 内应为 `http://mineru-router:8002` |
-| 一直 `processing` | 协调器未跑或仍在解析：`logs -f reconciler` |
+| `pending` / `processing`，`upstream unavailable` | MinerU 断流或未响应。任务会退避重试，恢复后自动继续，不需要重启 ThinkParse |
+| 一直 `processing` 且心跳年龄持续变大 | 协调器没在跑：`logs -f reconciler` |
 | `completed` 但缺 `content_list` | 投影异常；应标失败。若仍 completed，保留响应 JSON |
 | 提到 advanced / flash 的 400 | `/api/v1` 拒 `advanced`；`flash` 需 `LEGACY_ALLOW_FLASH=true` |
 | `.xml` / `.tex` / `.eml` 400 | 未配置 `DOCLING_BASE_URL` |

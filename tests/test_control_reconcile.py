@@ -46,6 +46,8 @@ class FakeMinerU:
         self.released: list[str] = []
         self.forget = False
         self.down = False
+        self.fetch_down = False
+        self.boom = False
         self.hold = False
         self.reject = ""
         self.base_url = ""
@@ -87,6 +89,10 @@ class FakeMinerU:
                 self.active_submits -= 1
 
     def poll(self, job_id: str) -> UpstreamPoll:
+        if self.down:
+            raise UpstreamUnavailable("down")
+        if self.boom:
+            raise RuntimeError("boom")
         with self._poll_lock:
             self.active_polls += 1
             self.max_active_polls = max(self.max_active_polls, self.active_polls)
@@ -109,6 +115,8 @@ class FakeMinerU:
 
     def fetch(self, poll: UpstreamPoll) -> NativeArtifacts:
         del poll
+        if self.fetch_down or self.down:
+            raise UpstreamUnavailable("down")
         return NativeArtifacts(
             markdown=self.markdown,
             middle=FIXTURE,
@@ -119,6 +127,8 @@ class FakeMinerU:
         self.released.extend(file_ids)
 
     def cancel(self, job_id: str) -> None:
+        if self.down:
+            raise UpstreamUnavailable("down")
         self.cancelled.append(job_id)
         self.jobs.pop(job_id, None)
 
@@ -201,6 +211,61 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(payload["task"]["task_id"], created["task_id"])
         self.assertEqual(self.engine.submitted, 2)
 
+    def test_upstream_outage_waits_and_completes_after_recovery(self) -> None:
+        self.engine.down = True
+        created = self.plane.submit("paper.pdf", b"%PDF")
+        for _ in range(5):
+            self.reconciler.run_once()
+            task = self.store.get_task(created["task_id"])
+            assert task is not None
+            self.assertNotEqual(task.status, "failed")
+            task.next_attempt_at = utcnow()
+            self.store.update_task(task)
+        self.engine.down = False
+        self.reconciler.run_once()
+        self.reconciler.run_once()
+        payload = self.plane.status_payload(created["task_id"])
+        assert payload is not None
+        self.assertEqual(payload["task"]["status"], "completed")
+
+    def test_download_blip_retries_the_same_upstream_job(self) -> None:
+        self.engine.fetch_down = True
+        created = self.plane.submit("paper.pdf", b"%PDF")
+        self.reconciler.run_once()
+        self.reconciler.run_once()
+        task = self.store.get_task(created["task_id"])
+        assert task is not None
+        self.assertEqual(task.status, "running")
+        self.assertEqual(task.upstream_job_id, "job_1")
+        self.assertEqual(self.engine.submitted, 1)
+        self.engine.fetch_down = False
+        task.next_attempt_at = utcnow()
+        self.store.update_task(task)
+        self.reconciler.run_once()
+        payload = self.plane.status_payload(created["task_id"])
+        assert payload is not None
+        self.assertEqual(payload["task"]["status"], "completed")
+        self.assertEqual(self.engine.submitted, 1)
+
+    def test_unexpected_poll_error_does_not_escape(self) -> None:
+        self.engine.hold = True
+        created = self.plane.submit("paper.pdf", b"%PDF")
+        self.reconciler.run_once()
+        self.engine.boom = True
+        self.reconciler.run_once()
+        task = self.store.get_task(created["task_id"])
+        assert task is not None
+        self.assertEqual(task.status, "running")
+        self.assertEqual(task.upstream_job_id, "job_1")
+        self.engine.boom = False
+        self.engine.hold = False
+        task.next_attempt_at = utcnow()
+        self.store.update_task(task)
+        self.reconciler.run_once()
+        payload = self.plane.status_payload(created["task_id"])
+        assert payload is not None
+        self.assertEqual(payload["task"]["status"], "completed")
+
     def test_upstream_rejection_fails_without_retry(self) -> None:
         self.engine.reject = "tier standard is not served"
         created = self.plane.submit("paper.pdf", b"%PDF")
@@ -263,6 +328,18 @@ class ReconcileTests(unittest.TestCase):
         assert payload is not None
         self.assertEqual(payload["task"]["status"], "cancelled")
         self.assertEqual(self.engine.cancelled, ["job_1"])
+
+    def test_cancel_completes_while_upstream_is_down(self) -> None:
+        self.engine.hold = True
+        created = self.plane.submit("paper.pdf", b"%PDF")
+        self.reconciler.run_once()
+        self.engine.down = True
+        self.plane.cancel(created["task_id"])
+        self.reconciler.run_once()
+        payload = self.plane.status_payload(created["task_id"])
+        assert payload is not None
+        self.assertEqual(payload["task"]["status"], "cancelled")
+        self.assertEqual(self.engine.cancelled, [])
 
     def test_unknown_backend_and_unregistered_formats(self) -> None:
         from control.options import RequestRejected

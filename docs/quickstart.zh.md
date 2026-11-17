@@ -101,7 +101,8 @@ done
 | `ready` 503，`mineru` 为 false | 看 MinerU 日志；`external` 时检查 URL 是否仍是 compose 内网名 |
 | `tiers.discovered` 为 false | 网关读不到上游 `/v1/tiers`，任务会排队但不该继续压测 |
 | 提交 400，`not available in this deployment` | 当前部署没有该档（例如 CPU 上没有 `standard`） |
-| 任务一直 `processing` | 查看 `reconciler` 日志；确认协调器容器在跑 |
+| 任务一直 `processing`，心跳仍在更新 | MinerU 可能不可达。任务在排队，上游恢复后会继续 |
+| 任务一直 `processing`，心跳年龄变大 | 协调器没在跑。查看 `reconciler` 日志 |
 
 ```bash
 docker compose --env-file .env -f docker/docker-compose.yml logs -f gateway reconciler

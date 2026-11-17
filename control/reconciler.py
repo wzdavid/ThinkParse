@@ -31,8 +31,14 @@ def main() -> None:
         inflight_byte_limit=settings.inflight_byte_limit,
         tiers=TierCatalog(list(clients), settings.accepted_tiers),
     )
+    log = logging.getLogger("thinkparse.reconcile")
     while True:
-        worked = reconciler.run_once()
+        try:
+            worked = reconciler.run_once()
+        except Exception:
+            log.exception("reconcile cycle failed; retrying")
+            time.sleep(max(settings.poll_interval_seconds, 1.0))
+            continue
         time.sleep(0.05 if worked else settings.poll_interval_seconds)
 
 

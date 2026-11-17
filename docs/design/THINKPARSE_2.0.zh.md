@@ -191,7 +191,7 @@ Docling 是可选引擎，只接 `.xml`、`.tex`、`.eml`，不是第四种硬�
 
 ### 6.3 取消、队列、健康
 
-- `DELETE /api/v1/tasks/{task_id}`：返回 `success: true` 和 `status: "cancel_requested"`。协调器停止提交或调用 MinerU 的取消接口。已完成的任务保持 `completed`。
+- `DELETE /api/v1/tasks/{task_id}`：返回 `success: true` 和 `status: "cancel_requested"`。协调器停止提交或调用 MinerU 的取消接口。MinerU 不可达时仍标 `cancelled`。已完成的任务保持 `completed`。
 - `GET /api/v1/queue/stats`：`stats.pending`、`stats.processing` 来自任务库，不再调用 Celery inspect。`completed` / `failed` 改为真实计数，调用方忽略这两项也不受影响。
 - `GET /api/v1/queue/tasks`：仍返回 `tasks[]`，元素含 `task_id`、`status`、`file_name`。
 - `GET /api/v1/health/live`、`/ready`、`/deep`、`/api/v1/health`：`live` 只表示网关进程。`ready` 在任务库、对象存储、MinerU `/v1/health` 都可用时为 200，否则 503。`deep` 给出每张卡的 worker、在途数、最近一次投影失败，仅供运维。
@@ -213,9 +213,9 @@ ThinkDoc 的 Docling 客户端还要顶层 `docling_document`。2.0 的 MinerU �
 accepted → dispatching → running → projecting → completed
                 │            │          │
                 │            │          └→ failed
-                │            └→ failed（上游失败，且尝试次数用尽）
+                │            └→ failed（上游明确拒绝，或上游报告解析失败）
                 └→ cancelled
-         running → dispatching（上游 ID 失效且原文仍在）
+         running → accepted（上游不可达、下载中断或 job 丢失；退避后重试，不因次数用尽失败）
 ```
 
 `projecting` 在旧接口上仍报告 `processing`，避免客户端把「MinerU 已完成、投影未写完」当成 `completed` 后读到空的 `content_list`。
@@ -230,8 +230,8 @@ accepted → dispatching → running → projecting → completed
 4. `POST /v1/parse/jobs`，保存 `upstream_job_id`，状态改为 `running`。
 5. 轮询上游。终态后把产物下载到对象存储。
 6. 运行该引擎的投影器。投影成功才标 `completed`。
-7. 若上游返回未知 `job_id`、连接拒绝或 `/v1/health` 失败，且尝试次数未用尽：清空 `upstream_job_id`，回到 `dispatching`。间隔指数退避，上限 5 次。超过则 `failed`，`error_message` 说明上游丢失。
-8. `cancel_requested` 时，若上游 ID 仍有效则 `DELETE /v1/parse/jobs/{id}`，然后标 `cancelled`。
+7. 上游连接失败、读到半截响应、5xx，或返回未知 `job_id`：任务保持未终态。已有 job 时保留 `upstream_job_id` 并稍后重试下载或轮询；job 已丢失则清空 id，回到 `accepted` 重新提交。退避从 2 秒指数增长到 60 秒。`THINKPARSE_MAX_ATTEMPTS` 不把这类等待判为 `failed`。等待时间不计入 `THINKPARSE_TASK_TIMEOUT_SECONDS`。协调器进程不因上游异常退出。
+8. `cancel_requested` 时尝试 `DELETE /v1/parse/jobs/{id}`。上游不可达也标 `cancelled`，槽位立即释放；MinerU 上残留的 job 由其文件保留时间清理。
 
 网关进程不跑这个循环。协调器可水平扩展，锁在任务行上。
 
