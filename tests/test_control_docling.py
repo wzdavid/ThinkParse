@@ -95,6 +95,12 @@ class DoclingRouteTests(unittest.TestCase):
             self.assertEqual(payload["markdown_content"], "# JATS")
             self.assertNotIn("schema", payload["middle_json"])
             self.assertEqual(mineru_called["n"], 0)
+            job = plane.native_job(created["task_id"])
+            assert job is not None
+            outputs = job["files"][0]["output_files"]
+            self.assertIn("docling_document", outputs)
+            self.assertNotIn("content_list", outputs)
+            self.assertNotIn("middle_native", outputs)
             self.assertTrue(any(path.startswith("POST /v1/convert/source/async") for path in calls))
 
 

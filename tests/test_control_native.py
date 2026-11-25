@@ -91,10 +91,23 @@ class NativeApiTests(unittest.TestCase):
             self.assertEqual(image.status_code, 200)
             self.assertEqual(image.content, b"img-bytes")
             self.assertNotIn("data:image", json.dumps(finished))
+            outputs = finished["files"][0]["output_files"]
+            native = client.get(f"/api/v2/files/{outputs['middle_native']['file_id']}/content")
+            self.assertEqual(native.status_code, 200)
+            self.assertEqual(native.headers["content-type"], "application/json")
+            self.assertEqual(native.json()["schema"], "docvortex.middle")
+            self.assertEqual(outputs["middle_native"]["bytes"], len(native.content))
+            content_list = client.get(f"/api/v2/files/{outputs['content_list']['file_id']}/content")
+            self.assertEqual(content_list.status_code, 200)
+            self.assertIsInstance(content_list.json(), list)
+            meta = client.get(f"/api/v2/files/{outputs['content_list']['file_id']}").json()
+            self.assertEqual(meta["purpose"], "content_list")
+            self.assertEqual(meta["filename"], "content_list.json")
             legacy = client.get(f"/api/v1/tasks/{body['job_id']}")
             self.assertIn("content_list", legacy.json())
             self.assertNotIn("schema", legacy.json()["middle_json"])
             self.assertNotIn("docling_document", legacy.json())
+            self.assertEqual(content_list.json(), legacy.json()["content_list"])
 
     def test_api_key_gates_native_routes_only(self) -> None:
         with TemporaryDirectory() as tmp:

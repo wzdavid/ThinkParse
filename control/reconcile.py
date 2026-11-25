@@ -468,17 +468,18 @@ class Reconciler:
         self._register_output(task, "markdown", "result.md", f"artifacts/{task.id}/result.md", markdown_bytes)
         content_bytes = json.dumps(projection.content_list, ensure_ascii=False).encode("utf-8")
         artifacts.append(self._put_bytes(task, "content_list_v1", "content_list.json", content_bytes))
+        if projection.docling_document is None:
+            self._register_output(
+                task, "content_list", "content_list.json", f"artifacts/{task.id}/content_list.json", content_bytes
+            )
         middle_bytes = json.dumps(projection.middle_pdf_info, ensure_ascii=False).encode("utf-8")
         artifacts.append(self._put_bytes(task, "middle_pdf_info", "middle.json", middle_bytes))
         self._register_output(task, "middle_json", "middle.json", f"artifacts/{task.id}/middle.json", middle_bytes)
         if projection.native_middle is not None:
-            artifacts.append(
-                self._put_bytes(
-                    task,
-                    "middle_native",
-                    "middle_native.json",
-                    json.dumps(projection.native_middle, ensure_ascii=False).encode("utf-8"),
-                )
+            native_bytes = json.dumps(projection.native_middle, ensure_ascii=False).encode("utf-8")
+            artifacts.append(self._put_bytes(task, "middle_native", "middle_native.json", native_bytes))
+            self._register_output(
+                task, "middle_native", "middle_native.json", f"artifacts/{task.id}/middle_native.json", native_bytes
             )
         if projection.docling_document is not None:
             document_bytes = json.dumps(projection.docling_document, ensure_ascii=False).encode("utf-8")

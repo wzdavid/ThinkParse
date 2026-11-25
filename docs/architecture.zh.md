@@ -111,7 +111,7 @@ MinerU 投影要点：
 
 1. MinerU 的完整结果是 zip。协调器只下载这一份，解出 `markdown.md`、`middle_json.json` 和 `images/`。Markdown 与表格 HTML 引用这些文件名，不能残留 `data:image`。缺文件或仍内嵌 data URL 时任务失败。
 2. `content_list` 映射为调用方可消费的 v1 元素（正文、标题、图片、表格、公式、废弃块等）。黄金样本在 `tests/fixtures/legacy_projection/`。
-3. `middle_json` 对外只输出投影后的 `pdf_info` 形状（含 `page_size`、`discarded_blocks`），**不**带 `schema: docvortex.middle` 信封。原生 middle 存为 `middle_native` 产物。
+3. `middle_json` 对外只输出投影后的 `pdf_info` 形状（含 `page_size`、`discarded_blocks`），**不**带 `schema: docvortex.middle` 信封。原生 middle 存为 `middle_native` 产物，并和 `content_list` 一起登记为 `/api/v2` 输出文件。
 4. 投影失败即任务失败，不允许 `completed` + 残缺 JSON。
 
 Docling 投影：原生 JSON 存为 `docling_document`；不把 DoclingDocument 伪装成 MinerU `content_list`。
