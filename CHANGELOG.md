@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `/api/v2/jobs/{id}` lists `middle_native` (the unprojected MinerU middle, `middle_native.json`) and `content_list` (`content_list.json`, same array as the `/api/v1` response) in `output_files` for completed MinerU jobs. Download them with `GET /api/v2/files/{file_id}/content`. The `/api/v1` `middle_json` projection is unchanged. Jobs completed before this change do not list the new keys.
+
 ## 2.1.0
 
 - Reconciler stays up when MinerU is unreachable, drops a connection, or returns a partial body. Those tasks wait and resume after the engine recovers. `THINKPARSE_MAX_ATTEMPTS` does not fail that wait. Cancelling a task still completes locally if the upstream cannot be reached.

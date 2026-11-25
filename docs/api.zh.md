@@ -107,7 +107,16 @@ Docling 路由的完成响应可带顶层 `docling_document`；MinerU 路由不�
 - `GET /api/v2/files/{id}`
 - `GET /api/v2/files/{id}/content`
 
-完成的 MinerU 任务在 `output_files` 里给出 `markdown`、`middle_json`，以及 `images[]`（`file_id`、`filename`、`bytes`）。图片字节用文件接口下载，不放进任务 JSON。`/api/v1` 的 `data_url` 只在兼容响应里现编码。
+完成的 MinerU 任务在 `output_files` 里给出 `markdown`、`middle_json`、`middle_native`、`content_list`，以及 `images[]`（`file_id`、`filename`、`bytes`）。图片字节用文件接口下载，不放进任务 JSON。`/api/v1` 的 `data_url` 只在兼容响应里现编码。
+
+| 键 | 文件 | 内容 |
+|---|---|---|
+| `markdown` | `result.md` | Markdown |
+| `middle_json` | `middle.json` | 与 `/api/v1` 相同的投影 `pdf_info`（`page_size`、`discarded_blocks`） |
+| `middle_native` | `middle_native.json` | MinerU 返回的原生 middle（`schema: docvortex.middle`，按页 `pages[].blocks[]`，块带 `bbox`），不做投影 |
+| `content_list` | `content_list.json` | 与 `/api/v1` 响应里 `content_list` 相同的 v1 数组 |
+
+Docling 任务给出 `markdown`、`middle_json`、`docling_document`，不给 `middle_native` 和 `content_list`。这两个键只出现在本版本之后完成的任务里。
 
 ### 发现与观测
 

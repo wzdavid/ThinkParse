@@ -361,7 +361,7 @@ class ControlPlane:
                     image_files.append(
                         {"file_id": record.id, "filename": record.filename, "bytes": record.byte_size}
                     )
-                elif record.purpose in {"markdown", "middle_json", "docling_document"}:
+                elif record.purpose in {"markdown", "middle_json", "middle_native", "content_list", "docling_document"}:
                     outputs[record.purpose] = {"file_id": record.id, "bytes": record.byte_size}
             if image_files:
                 outputs["images"] = image_files
